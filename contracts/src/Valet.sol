@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {BeneficiaryMode, Bounds, Capsule, MintParams, Vault} from "./ValetTypes.sol";
+import {Assert, BeneficiaryMode, Bounds, Capsule, MintParams, SpendRequest, Vault} from "./ValetTypes.sol";
 
 /// @title Valet — bounded, revocable spending authority for agents
 /// @notice A valet key for money. The car starts, the boot stays shut, and that
@@ -40,6 +40,7 @@ contract Valet {
     );
     event CapsuleClaimed(uint256 indexed capsuleId, address indexed holder, address indexed by);
     event CapsuleRevoked(uint256 indexed capsuleId, address indexed issuer);
+    event CapsuleSurrendered(uint256 indexed capsuleId, address indexed principal);
     event CapsulePaused(uint256 indexed capsuleId, address indexed by, bool isIssuer, bool paused);
 
     // --- errors ---
@@ -54,6 +55,9 @@ contract Valet {
     error ZeroAmount();
     error ZeroAddress();
     error BadBounds(string what);
+
+    /// @notice A spend was refused, and by which of the nineteen checks.
+    error Refused(Assert which);
 
     // --- role gates -------------------------------------------------------
     // Three parties share one capsule without sharing power.
@@ -115,7 +119,6 @@ contract Valet {
         c.fixedBeneficiary = p.fixedBeneficiary;
         c.policyHash = p.policyHash;
         c.bounds = p.bounds;
-        c.windowStart = p.bounds.notBefore;
 
         for (uint256 i = 0; i < p.allowedTargets.length; i++) {
             if (p.allowedTargets[i] == address(0)) revert ZeroAddress();
@@ -162,6 +165,22 @@ contract Valet {
     // --- the two powers that prove the role split --------------------------
     // The rest of the lifecycle (surrender, tighten, revoke-and-sweep) is 1.5.
 
+    /// @dev Ends every capsule drawing on this vault at once.
+    function revokeVault(uint256 vaultId) external {
+        Vault storage v = _vaults[vaultId];
+        if (v.issuer == address(0)) revert NoSuchVault();
+        if (msg.sender != v.issuer) revert NotIssuer();
+        v.revoked = true;
+        emit VaultRevoked(vaultId, msg.sender);
+    }
+
+    /// @notice The recipient hands the capability back.
+    /// @dev Not called "revoke": the funds were never theirs to reclaim.
+    function surrender(uint256 capsuleId) external onlyPrincipal(capsuleId) {
+        _capsules[capsuleId].surrendered = true;
+        emit CapsuleSurrendered(capsuleId, msg.sender);
+    }
+
     function revoke(uint256 capsuleId) external onlyIssuer(capsuleId) {
         _capsules[capsuleId].revoked = true;
         emit CapsuleRevoked(capsuleId, msg.sender);
@@ -177,6 +196,124 @@ contract Valet {
     function setPausedByPrincipal(uint256 capsuleId, bool paused) external onlyPrincipal(capsuleId) {
         _capsules[capsuleId].pausedByPrincipal = paused;
         emit CapsulePaused(capsuleId, msg.sender, false, paused);
+    }
+
+
+    // --- the nineteen checks ---------------------------------------------
+    //
+    // Every spend passes through here. The limits are not in our server and not
+    // in the agent's prompt; they are these requires, and an agent that ignores
+    // every description it was given still meets them.
+
+    /// @notice Evaluate a request without changing anything.
+    /// @dev Shares its body with `_checkAndCharge`, so what the console shows and
+    ///      what the chain enforces cannot drift apart. The UI preflights with
+    ///      this; the holder spends through the other.
+    /// @return which the first check that refuses, or Assert.NONE if all pass
+    function preflight(SpendRequest calldata r, address caller) public view returns (Assert which) {
+        Capsule storage c = _capsules[r.capsuleId];
+        if (c.issuer == address(0)) return Assert.VAULT_MISMATCH;
+        Vault storage v = _vaults[c.vaultId];
+
+        // -- who is asking (3)
+        if (r.vaultId != c.vaultId) return Assert.VAULT_MISMATCH;
+        if (c.holder == address(0)) return Assert.NOT_CLAIMED;
+        if (caller != c.holder) return Assert.NOT_HOLDER;
+
+        // -- is it alive (6)
+        if (v.revoked) return Assert.VAULT_REVOKED;
+        if (c.revoked) return Assert.CAPSULE_REVOKED;
+        if (c.surrendered) return Assert.SURRENDERED;
+        if (c.pausedByIssuer || c.pausedByPrincipal) return Assert.PAUSED;
+        if (block.timestamp < c.bounds.notBefore) return Assert.BEFORE_START;
+        if (block.timestamp >= c.bounds.expiresAt) return Assert.EXPIRED;
+
+        // -- recurrence (1)
+        // Window index is computed, not rolled forward. A window that goes unused
+        // is forfeited rather than banked, because letting a skipped day become
+        // spendable later rebuilds the lump-sum risk this exists to remove.
+        uint256 idx = (block.timestamp - c.bounds.notBefore) / c.bounds.windowLength;
+        if (idx >= c.bounds.windows) return Assert.WINDOWS_EXHAUSTED;
+
+        // -- soft caps (3): an approved escalation may lift these, and only these
+        if (r.amountIn == 0) return Assert.ZERO_AMOUNT;
+        if (r.amountIn > c.bounds.perAction) return Assert.OVER_ACTION_CAP;
+        uint256 inWindow = (idx == c.lastWindowIndex) ? c.spentInWindow : 0;
+        if (inWindow + r.amountIn > c.bounds.perWindow) return Assert.OVER_WINDOW_CAP;
+
+        // -- hard caps (2): nothing lifts these. Not a permit, not the issuer at
+        //    3am, not a compromised backend.
+        if (r.amountIn > c.bounds.hardCap) return Assert.OVER_HARD_CAP;
+        if (c.spentTotal + r.amountIn > c.bounds.totalCap) return Assert.OVER_TOTAL_CAP;
+
+        // -- scope (3)
+        if (!allowedTarget[r.capsuleId][r.target]) return Assert.TARGET_NOT_ALLOWED;
+        if (!_floorWithinSlippage(r.quotedOut, r.minOut, c.bounds.maxSlippageBps)) {
+            return Assert.SLIPPAGE_TOO_WIDE;
+        }
+        if (r.recipient != beneficiaryOf(r.capsuleId)) return Assert.WRONG_RECIPIENT;
+
+        // -- funds (1)
+        if (v.balance < r.amountIn) return Assert.VAULT_UNDERFUNDED;
+
+        return Assert.NONE;
+    }
+
+    /// @dev The floor the holder commits to must sit within the slippage the
+    ///      policy allows, measured against the quote the holder itself declared.
+    ///
+    ///      This bounds the holder's discretion, not its honesty: an agent that
+    ///      quotes 100 cannot then accept 50, but nothing here stops it quoting
+    ///      50 in the first place. That is deliberate, and it is safe, because the
+    ///      holder never receives the proceeds — `recipient` is checked against a
+    ///      beneficiary fixed at mint, so a bad fill costs the agent nothing to
+    ///      gain. Slippage guards sloppiness; custody guards theft.
+    function _floorWithinSlippage(uint256 quotedOut, uint256 minOut, uint16 maxSlippageBps)
+        internal
+        pure
+        returns (bool)
+    {
+        if (quotedOut == 0) return false;
+        if (minOut > quotedOut) return true; // a tighter floor than quoted is fine
+        uint256 worstAllowed = quotedOut - (quotedOut * maxSlippageBps) / 10_000;
+        return minOut >= worstAllowed;
+    }
+
+    /// @notice Check, then debit. Reverts naming the check that refused.
+    /// @dev Debits before the venue is touched, so a reentrant call sees the
+    ///      spend already counted against every cap.
+    function _checkAndCharge(SpendRequest calldata r) internal returns (Capsule storage c, Vault storage v) {
+        Assert which = preflight(r, msg.sender);
+        if (which != Assert.NONE) revert Refused(which);
+
+        c = _capsules[r.capsuleId];
+        v = _vaults[c.vaultId];
+
+        uint256 idx = (block.timestamp - c.bounds.notBefore) / c.bounds.windowLength;
+        if (idx != c.lastWindowIndex) {
+            c.lastWindowIndex = uint32(idx);
+            c.spentInWindow = 0;
+        }
+        c.spentInWindow += r.amountIn;
+        c.spentTotal += r.amountIn;
+        v.balance -= r.amountIn;
+    }
+
+    /// @notice What the console shows: how much room is left, right now.
+    function headroom(uint256 capsuleId)
+        external
+        view
+        returns (uint256 perActionLeft, uint256 windowLeft, uint256 totalLeft, uint256 windowIndex)
+    {
+        Capsule storage c = _capsules[capsuleId];
+        if (c.issuer == address(0)) revert NoSuchCapsule();
+        windowIndex = block.timestamp < c.bounds.notBefore
+            ? 0
+            : (block.timestamp - c.bounds.notBefore) / c.bounds.windowLength;
+        uint256 inWindow = (windowIndex == c.lastWindowIndex) ? c.spentInWindow : 0;
+        perActionLeft = c.bounds.perAction;
+        windowLeft = c.bounds.perWindow > inWindow ? c.bounds.perWindow - inWindow : 0;
+        totalLeft = c.bounds.totalCap > c.spentTotal ? c.bounds.totalCap - c.spentTotal : 0;
     }
 
     // --- views ------------------------------------------------------------

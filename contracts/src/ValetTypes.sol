@@ -53,12 +53,57 @@ struct Capsule {
     // --- mutable state ---
     uint256 spentTotal;
     uint256 spentInWindow;
-    uint32 windowsUsed;
-    uint64 windowStart;
+    uint32 lastWindowIndex;   // which window `spentInWindow` refers to
     bool revoked;               // issuer: ends it
     bool surrendered;           // principal: hands it back
     bool pausedByIssuer;
     bool pausedByPrincipal;
+}
+
+/// @notice Which of the nineteen checks refused a spend.
+/// @dev One enum rather than nineteen errors, so a refusal is legible to the
+///      agent, the console and the demo alike: the chain says *which* limit bit.
+enum Assert {
+    NONE,
+    // who is asking
+    VAULT_MISMATCH,
+    NOT_CLAIMED,
+    NOT_HOLDER,
+    // is it alive
+    VAULT_REVOKED,
+    CAPSULE_REVOKED,
+    SURRENDERED,
+    PAUSED,
+    BEFORE_START,
+    EXPIRED,
+    // recurrence
+    WINDOWS_EXHAUSTED,
+    // soft caps — an approved escalation may lift these
+    ZERO_AMOUNT,
+    OVER_ACTION_CAP,
+    OVER_WINDOW_CAP,
+    // hard caps — nothing lifts these
+    OVER_HARD_CAP,
+    OVER_TOTAL_CAP,
+    // scope
+    TARGET_NOT_ALLOWED,
+    SLIPPAGE_TOO_WIDE,
+    WRONG_RECIPIENT,
+    // funds
+    VAULT_UNDERFUNDED
+}
+
+/// @notice What the holder is asking to do. The agent declares its intent —
+///         venue, size, the fill it expects and where proceeds go — and the
+///         contract checks every part of that declaration before anything moves.
+struct SpendRequest {
+    uint256 capsuleId;
+    uint256 vaultId;    // declared, then checked against the capsule
+    uint256 amountIn;
+    uint256 quotedOut;  // what the agent says the venue will pay
+    uint256 minOut;     // the floor it commits to accepting
+    address target;     // the venue
+    address recipient;  // where the agent says proceeds will land
 }
 
 /// @notice Arguments for minting. A struct because the bounds alone are nine fields
