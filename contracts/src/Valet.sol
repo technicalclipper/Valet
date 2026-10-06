@@ -57,6 +57,8 @@ contract Valet is ReentrancyGuard {
         address beneficiary
     );
     event ProceedsSwept(uint256 indexed capsuleId, address indexed to, uint256 amount);
+    event CapsuleTightened(uint256 indexed capsuleId, address indexed issuer);
+    event VaultSwept(uint256 indexed vaultId, address indexed issuer, uint256 amount);
 
     // --- errors ---
 
@@ -77,6 +79,7 @@ contract Valet is ReentrancyGuard {
     error BelowFloor(uint256 received, uint256 minOut);
     error PayoutFailed();
     error NothingToSweep();
+    error NotATightening(string what);
 
     // --- role gates -------------------------------------------------------
     // Three parties share one capsule without sharing power.
@@ -408,6 +411,67 @@ contract Valet is ReentrancyGuard {
         perActionLeft = c.bounds.perAction;
         windowLeft = c.bounds.perWindow > inWindow ? c.bounds.perWindow - inWindow : 0;
         totalLeft = c.bounds.totalCap > c.spentTotal ? c.bounds.totalCap - c.spentTotal : 0;
+    }
+
+
+    // --- tightening: the limits may move down, never up --------------------
+
+    /// @notice Narrow a live capsule. Every bound may only become stricter.
+    /// @dev The issuer set these once while thinking clearly. Allowing a later
+    ///      loosening would mean the ceiling a recipient was shown is not the
+    ///      ceiling they have — so an issuer who wants a wider permission mints
+    ///      a new capsule, which the recipient must accept, rather than quietly
+    ///      widening one already in someone's hands.
+    ///
+    ///      `notBefore` and `windowLength` are immutable rather than merely
+    ///      one-directional. Window index is (now - notBefore) / windowLength,
+    ///      so moving either re-indexes every window — spending already recorded
+    ///      against the old indices would land in different windows, and a
+    ///      capsule could be made to forget that today was spent.
+    function tighten(uint256 capsuleId, Bounds calldata b) external onlyIssuer(capsuleId) {
+        Capsule storage c = _capsules[capsuleId];
+        Bounds memory old = c.bounds;
+
+        if (b.notBefore != old.notBefore) revert NotATightening("notBefore is immutable");
+        if (b.windowLength != old.windowLength) revert NotATightening("windowLength is immutable");
+
+        if (b.perAction > old.perAction) revert NotATightening("perAction");
+        if (b.perWindow > old.perWindow) revert NotATightening("perWindow");
+        if (b.hardCap > old.hardCap) revert NotATightening("hardCap");
+        if (b.totalCap > old.totalCap) revert NotATightening("totalCap");
+        if (b.windows > old.windows) revert NotATightening("windows");
+        if (b.expiresAt > old.expiresAt) revert NotATightening("expiresAt");
+        if (b.maxSlippageBps > old.maxSlippageBps) revert NotATightening("maxSlippageBps");
+
+        // the result still has to be a coherent set of bounds, so an issuer
+        // cannot drop hardCap under perAction and leave the pair contradictory
+        _validateBounds(b);
+
+        c.bounds = b;
+        emit CapsuleTightened(capsuleId, msg.sender);
+    }
+
+    // --- ending it ---------------------------------------------------------
+
+    /// @notice End every capsule on a vault and take the money back, at once.
+    /// @dev One transaction, because the two halves are not separable in
+    ///      practice: revoking and then sweeping leaves a window in which the
+    ///      capsules are dead but the funds are still here, and sweeping first
+    ///      leaves live capsules pointing at an empty vault.
+    function revokeVaultAndSweep(uint256 vaultId) external nonReentrant returns (uint256 amount) {
+        Vault storage v = _vaults[vaultId];
+        if (v.issuer == address(0)) revert NoSuchVault();
+        if (msg.sender != v.issuer) revert NotIssuer();
+
+        v.revoked = true;
+        amount = v.balance;
+        v.balance = 0;
+
+        emit VaultRevoked(vaultId, msg.sender);
+        if (amount > 0) {
+            IERC20(v.asset).safeTransfer(msg.sender, amount);
+            emit VaultSwept(vaultId, msg.sender, amount);
+        }
     }
 
     // --- views ------------------------------------------------------------
