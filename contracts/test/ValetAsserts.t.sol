@@ -17,7 +17,11 @@ contract MockUSDC2 is ERC20 {
 ///      which is the only way the hard cap becomes reachable at all.
 contract ValetHarness is Valet {
     function chargeOnly(SpendRequest calldata r) external {
-        _checkAndCharge(r);
+        _checkAndCharge(r, false);
+    }
+
+    function chargeElevated(SpendRequest calldata r) external {
+        _checkAndCharge(r, true);
     }
 
     function liftSoftCap(uint256 capsuleId, uint256 newPerAction, uint256 newPerWindow) external {

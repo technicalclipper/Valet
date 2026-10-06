@@ -4,7 +4,9 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Assert, BeneficiaryMode, Bounds, Capsule, MintParams, SpendRequest, Vault} from "./ValetTypes.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {Assert, BeneficiaryMode, Bounds, Capsule, Escalation, MintParams, SpendRequest, Vault} from "./ValetTypes.sol";
 
 /// @title Valet — bounded, revocable spending authority for agents
 /// @notice A valet key for money. The car starts, the boot stays shut, and that
@@ -12,8 +14,16 @@ import {Assert, BeneficiaryMode, Bounds, Capsule, MintParams, SpendRequest, Vaul
 /// @dev Phase 1.1: vaults, capsules, the three roles, minting, funding, claiming.
 ///      Spending (`_checkAndCharge` + `execute`) arrives in 1.2/1.3; the storage
 ///      here is already shaped to carry every assert those will make.
-contract Valet is ReentrancyGuard {
+contract Valet is ReentrancyGuard, EIP712 {
     using SafeERC20 for IERC20;
+
+    /// @dev The type the issuer signs. Named here so the frontend and the
+    ///      contract cannot disagree about it. Note for the client: Privy's REST
+    ///      endpoint wants `primary_type` in snake_case, not viem's `primaryType`.
+    bytes32 public constant ESCALATION_TYPEHASH =
+        keccak256("Escalation(uint256 capsuleId,uint256 amount,uint256 nonce,uint64 deadline)");
+
+    constructor() EIP712("Valet", "1") {}
 
     // --- storage ---
 
@@ -31,6 +41,12 @@ contract Valet is ReentrancyGuard {
     ///      Kept apart from Vault.balance, which is the spendable input asset —
     ///      conflating them would let a capsule spend what it just earned.
     mapping(uint256 => uint256) public proceedsOf;
+
+    /// @dev capsuleId => nonce => escalation
+    mapping(uint256 => mapping(uint256 => Escalation)) internal _escalations;
+    /// @dev next nonce per capsule; a request takes one, so a signature for one
+    ///      request can never be replayed against another
+    mapping(uint256 => uint256) public escalationNonce;
 
     // --- events: the audit trail is the chain's, not a log we write ---
 
@@ -59,6 +75,9 @@ contract Valet is ReentrancyGuard {
     event ProceedsSwept(uint256 indexed capsuleId, address indexed to, uint256 amount);
     event CapsuleTightened(uint256 indexed capsuleId, address indexed issuer);
     event VaultSwept(uint256 indexed vaultId, address indexed issuer, uint256 amount);
+    event EscalationRequested(uint256 indexed capsuleId, uint256 indexed nonce, uint256 amount, string reason);
+    event EscalationApproved(uint256 indexed capsuleId, uint256 indexed nonce, uint256 amount, uint64 deadline);
+    event EscalationConsumed(uint256 indexed capsuleId, uint256 indexed nonce, uint256 amountUsed);
 
     // --- errors ---
 
@@ -80,6 +99,14 @@ contract Valet is ReentrancyGuard {
     error PayoutFailed();
     error NothingToSweep();
     error NotATightening(string what);
+    error NotRequested();
+    error AlreadyApproved();
+    error AlreadyConsumed();
+    error NotApproved();
+    error PastDeadline();
+    error OverApprovedAmount(uint256 asked, uint256 approved);
+    error BadSignature();
+    error PointlessEscalation();
 
     // --- role gates -------------------------------------------------------
     // Three parties share one capsule without sharing power.
@@ -246,7 +273,14 @@ contract Valet is ReentrancyGuard {
         nonReentrant
         returns (uint256 received)
     {
-        (Capsule storage c, Vault storage v) = _checkAndCharge(r);
+        return _spend(r, venueData, false);
+    }
+
+    function _spend(SpendRequest calldata r, bytes calldata venueData, bool elevated)
+        internal
+        returns (uint256 received)
+    {
+        (Capsule storage c, Vault storage v) = _checkAndCharge(r, elevated);
 
         address assetOut = c.assetOut;
         uint256 before = _balanceOf(assetOut);
@@ -308,6 +342,19 @@ contract Valet is ReentrancyGuard {
     ///      this; the holder spends through the other.
     /// @return which the first check that refuses, or Assert.NONE if all pass
     function preflight(SpendRequest calldata r, address caller) public view returns (Assert which) {
+        return _evaluate(r, caller, false);
+    }
+
+    /// @notice As preflight, but as it would be judged under an approved escalation.
+    function preflightElevated(SpendRequest calldata r, address caller) public view returns (Assert which) {
+        return _evaluate(r, caller, true);
+    }
+
+    function _evaluate(SpendRequest calldata r, address caller, bool elevated)
+        internal
+        view
+        returns (Assert which)
+    {
         Capsule storage c = _capsules[r.capsuleId];
         if (c.issuer == address(0)) return Assert.VAULT_MISMATCH;
         Vault storage v = _vaults[c.vaultId];
@@ -334,9 +381,11 @@ contract Valet is ReentrancyGuard {
 
         // -- soft caps (3): an approved escalation may lift these, and only these
         if (r.amountIn == 0) return Assert.ZERO_AMOUNT;
-        if (r.amountIn > c.bounds.perAction) return Assert.OVER_ACTION_CAP;
-        uint256 inWindow = (idx == c.lastWindowIndex) ? c.spentInWindow : 0;
-        if (inWindow + r.amountIn > c.bounds.perWindow) return Assert.OVER_WINDOW_CAP;
+        if (!elevated) {
+            if (r.amountIn > c.bounds.perAction) return Assert.OVER_ACTION_CAP;
+            uint256 inWindow = (idx == c.lastWindowIndex) ? c.spentInWindow : 0;
+            if (inWindow + r.amountIn > c.bounds.perWindow) return Assert.OVER_WINDOW_CAP;
+        }
 
         // -- hard caps (2): nothing lifts these. Not a permit, not the issuer at
         //    3am, not a compromised backend.
@@ -379,8 +428,11 @@ contract Valet is ReentrancyGuard {
     /// @notice Check, then debit. Reverts naming the check that refused.
     /// @dev Debits before the venue is touched, so a reentrant call sees the
     ///      spend already counted against every cap.
-    function _checkAndCharge(SpendRequest calldata r) internal returns (Capsule storage c, Vault storage v) {
-        Assert which = preflight(r, msg.sender);
+    function _checkAndCharge(SpendRequest calldata r, bool elevated)
+        internal
+        returns (Capsule storage c, Vault storage v)
+    {
+        Assert which = _evaluate(r, msg.sender, elevated);
         if (which != Assert.NONE) revert Refused(which);
 
         c = _capsules[r.capsuleId];
@@ -413,6 +465,99 @@ contract Valet is ReentrancyGuard {
         totalLeft = c.bounds.totalCap > c.spentTotal ? c.bounds.totalCap - c.spentTotal : 0;
     }
 
+
+
+    // --- escalation -------------------------------------------------------
+    //
+    // An agent can ask to exceed its limit. It can never approve.
+    //
+    // The issuer's half of this is a signature and nothing else: approveEscalation
+    // may be submitted by anyone holding it, so the issuer needs no gas and never
+    // sends a transaction. What makes it theirs is that the signature must recover
+    // to the capsule's issuer — a key the agent has never held.
+
+    /// @notice The holder asks for more than its per-action cap allows.
+    /// @dev A request over the hard cap is deliberately allowed through. The
+    ///      issuer should be able to see that the agent asked for something
+    ///      absurd, and the refusal belongs at execution, where the hard cap is.
+    function requestEscalation(uint256 capsuleId, uint256 amount, string calldata reason)
+        external
+        returns (uint256 nonce)
+    {
+        Capsule storage c = _capsules[capsuleId];
+        if (c.issuer == address(0)) revert NoSuchCapsule();
+        if (msg.sender != c.holder) revert Refused(Assert.NOT_HOLDER);
+        if (amount <= c.bounds.perAction) revert PointlessEscalation();
+
+        nonce = escalationNonce[capsuleId]++;
+        Escalation storage e = _escalations[capsuleId][nonce];
+        e.requestedAmount = amount;
+        e.requested = true;
+
+        emit EscalationRequested(capsuleId, nonce, amount, reason);
+    }
+
+    /// @notice Turn the issuer's signature into a one-shot permit.
+    /// @dev Callable by anyone. The authority is in the signature, not the
+    ///      sender, which is what lets the issuer approve from a wallet holding
+    ///      no gas — they sign, a relayer pays.
+    function approveEscalation(
+        uint256 capsuleId,
+        uint256 amount,
+        uint256 nonce,
+        uint64 deadline,
+        bytes calldata signature
+    ) external {
+        Capsule storage c = _capsules[capsuleId];
+        if (c.issuer == address(0)) revert NoSuchCapsule();
+
+        Escalation storage e = _escalations[capsuleId][nonce];
+        if (!e.requested) revert NotRequested();
+        if (e.approved) revert AlreadyApproved();
+        if (block.timestamp >= deadline) revert PastDeadline();
+
+        bytes32 digest = escalationDigest(capsuleId, amount, nonce, deadline);
+        if (!SignatureChecker.isValidSignatureNow(c.issuer, digest, signature)) revert BadSignature();
+
+        e.approvedAmount = amount;
+        e.deadline = deadline;
+        e.approved = true;
+
+        emit EscalationApproved(capsuleId, nonce, amount, deadline);
+    }
+
+    /// @notice The digest the issuer signs. Exposed so a client cannot guess wrong.
+    function escalationDigest(uint256 capsuleId, uint256 amount, uint256 nonce, uint64 deadline)
+        public
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(keccak256(abi.encode(ESCALATION_TYPEHASH, capsuleId, amount, nonce, deadline)));
+    }
+
+    /// @notice Spend under an approved escalation. Lifts the soft caps, and only those.
+    /// @dev The permit is consumed before the venue is touched, so a reentrant
+    ///      call finds it already spent.
+    function executeElevated(SpendRequest calldata r, bytes calldata venueData, uint256 nonce)
+        external
+        nonReentrant
+        returns (uint256 received)
+    {
+        Escalation storage e = _escalations[r.capsuleId][nonce];
+        if (!e.approved) revert NotApproved();
+        if (e.consumed) revert AlreadyConsumed();
+        if (block.timestamp >= e.deadline) revert PastDeadline();
+        if (r.amountIn > e.approvedAmount) revert OverApprovedAmount(r.amountIn, e.approvedAmount);
+
+        e.consumed = true;
+        emit EscalationConsumed(r.capsuleId, nonce, r.amountIn);
+
+        received = _spend(r, venueData, true);
+    }
+
+    function getEscalation(uint256 capsuleId, uint256 nonce) external view returns (Escalation memory) {
+        return _escalations[capsuleId][nonce];
+    }
 
     // --- tightening: the limits may move down, never up --------------------
 
