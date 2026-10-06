@@ -48,6 +48,7 @@ struct Capsule {
     address holder;             // zero until claimed; settable exactly once
     BeneficiaryMode mode;
     address fixedBeneficiary;   // only read when mode == FIXED
+    address assetOut;           // what may be bought; address(0) means native
     bytes32 policyHash;         // hash of the policy document shown before mint
     Bounds bounds;
     // --- mutable state ---
@@ -113,6 +114,7 @@ struct MintParams {
     address principal;
     BeneficiaryMode mode;
     address fixedBeneficiary;
+    address assetOut;   // fixed by the policy, never chosen by the agent
     bytes32 policyHash;
     Bounds bounds;
     address[] allowedTargets;

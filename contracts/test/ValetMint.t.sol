@@ -57,6 +57,7 @@ contract ValetMintTest is Test {
             principal: principal,
             mode: BeneficiaryMode.PRINCIPAL,
             fixedBeneficiary: address(0),
+            assetOut: address(0),
             policyHash: keccak256("buy 5 USDC of MON daily for 30 days, max 1% slippage"),
             bounds: _bounds(),
             allowedTargets: targets

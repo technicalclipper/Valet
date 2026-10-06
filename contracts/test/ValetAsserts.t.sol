@@ -61,6 +61,7 @@ contract ValetAssertsTest is Test {
             principal: principal,
             mode: BeneficiaryMode.PRINCIPAL,
             fixedBeneficiary: address(0),
+            assetOut: address(0),
             policyHash: keccak256("5 USDC of MON daily for 30 days, max 1% slippage"),
             bounds: Bounds({
                 perAction: 5e6,
@@ -128,7 +129,7 @@ contract ValetAssertsTest is Test {
         t[0] = venue;
         uint256 fresh = valet.mintCapsule(MintParams({
             vaultId: vaultId, principal: principal, mode: BeneficiaryMode.PRINCIPAL,
-            fixedBeneficiary: address(0), policyHash: bytes32(0),
+            fixedBeneficiary: address(0), assetOut: address(0), policyHash: bytes32(0),
             bounds: valet.getCapsule(capsuleId).bounds, allowedTargets: t
         }));
         vm.stopPrank();
@@ -322,7 +323,7 @@ contract ValetAssertsTest is Test {
         t[0] = venue;
         uint256 id = valet.mintCapsule(MintParams({
             vaultId: vid, principal: principal, mode: BeneficiaryMode.PRINCIPAL,
-            fixedBeneficiary: address(0), policyHash: bytes32(0),
+            fixedBeneficiary: address(0), assetOut: address(0), policyHash: bytes32(0),
             bounds: Bounds({
                 perAction: 5e6, perWindow: 5e6, hardCap: 10e6, totalCap: 150e6,
                 windows: 30, windowLength: 1 days, notBefore: start,
@@ -351,7 +352,7 @@ contract ValetAssertsTest is Test {
         t[0] = venue;
         return valet.mintCapsule(MintParams({
             vaultId: vaultId, principal: principal, mode: BeneficiaryMode.PRINCIPAL,
-            fixedBeneficiary: address(0), policyHash: bytes32(0),
+            fixedBeneficiary: address(0), assetOut: address(0), policyHash: bytes32(0),
             bounds: Bounds({
                 perAction: 5e6, perWindow: 5e6, hardCap: 10e6, totalCap: 150e6,
                 windows: windows, windowLength: windowLength,

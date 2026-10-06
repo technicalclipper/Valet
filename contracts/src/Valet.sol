@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Assert, BeneficiaryMode, Bounds, Capsule, MintParams, SpendRequest, Vault} from "./ValetTypes.sol";
 
 /// @title Valet — bounded, revocable spending authority for agents
@@ -11,7 +12,7 @@ import {Assert, BeneficiaryMode, Bounds, Capsule, MintParams, SpendRequest, Vaul
 /// @dev Phase 1.1: vaults, capsules, the three roles, minting, funding, claiming.
 ///      Spending (`_checkAndCharge` + `execute`) arrives in 1.2/1.3; the storage
 ///      here is already shaped to carry every assert those will make.
-contract Valet {
+contract Valet is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // --- storage ---
@@ -25,6 +26,11 @@ contract Valet {
     /// @dev Scope: the venues a capsule may touch. Per capsule, by address, so a
     ///      permission is coupled to no particular DEX.
     mapping(uint256 => mapping(address => bool)) public allowedTarget;
+
+    /// @dev Proceeds held for a VAULT-mode capsule, denominated in its assetOut.
+    ///      Kept apart from Vault.balance, which is the spendable input asset —
+    ///      conflating them would let a capsule spend what it just earned.
+    mapping(uint256 => uint256) public proceedsOf;
 
     // --- events: the audit trail is the chain's, not a log we write ---
 
@@ -42,6 +48,15 @@ contract Valet {
     event CapsuleRevoked(uint256 indexed capsuleId, address indexed issuer);
     event CapsuleSurrendered(uint256 indexed capsuleId, address indexed principal);
     event CapsulePaused(uint256 indexed capsuleId, address indexed by, bool isIssuer, bool paused);
+    event Executed(
+        uint256 indexed capsuleId,
+        address indexed holder,
+        address indexed target,
+        uint256 amountIn,
+        uint256 received,
+        address beneficiary
+    );
+    event ProceedsSwept(uint256 indexed capsuleId, address indexed to, uint256 amount);
 
     // --- errors ---
 
@@ -58,6 +73,10 @@ contract Valet {
 
     /// @notice A spend was refused, and by which of the nineteen checks.
     error Refused(Assert which);
+    error VenueCallFailed(bytes reason);
+    error BelowFloor(uint256 received, uint256 minOut);
+    error PayoutFailed();
+    error NothingToSweep();
 
     // --- role gates -------------------------------------------------------
     // Three parties share one capsule without sharing power.
@@ -108,6 +127,7 @@ contract Valet {
         if (p.principal == address(0)) revert ZeroAddress();
         if (p.mode == BeneficiaryMode.FIXED && p.fixedBeneficiary == address(0)) revert ZeroAddress();
 
+        if (p.assetOut == v.asset) revert BadBounds("assetOut equals assetIn");
         _validateBounds(p.bounds);
 
         capsuleId = nextCapsuleId++;
@@ -117,6 +137,7 @@ contract Valet {
         c.principal = p.principal;
         c.mode = p.mode;
         c.fixedBeneficiary = p.fixedBeneficiary;
+        c.assetOut = p.assetOut;
         c.policyHash = p.policyHash;
         c.bounds = p.bounds;
 
@@ -198,6 +219,79 @@ contract Valet {
         emit CapsulePaused(capsuleId, msg.sender, false, paused);
     }
 
+
+
+    // --- spending ---------------------------------------------------------
+
+    /// @notice The only way money leaves a vault.
+    /// @param r         what the holder declares it intends to do
+    /// @param venueData the call to make at the venue — opaque to us on purpose
+    /// @return received proceeds, measured rather than reported, and already
+    ///         delivered to the beneficiary fixed at mint
+    ///
+    /// @dev The agent names the venue and writes the calldata; it never takes
+    ///      custody. Funds go contract -> venue -> contract -> beneficiary inside
+    ///      one transaction, and the destination was decided at mint. Skimming is
+    ///      not detected and punished here — there is no point in the flow at
+    ///      which the agent holds the asset to skim from.
+    ///
+    ///      Proceeds are measured as a balance delta, not read from the venue's
+    ///      return value, because a venue that lies about its return value is a
+    ///      venue we would otherwise trust.
+    function execute(SpendRequest calldata r, bytes calldata venueData)
+        external
+        nonReentrant
+        returns (uint256 received)
+    {
+        (Capsule storage c, Vault storage v) = _checkAndCharge(r);
+
+        address assetOut = c.assetOut;
+        uint256 before = _balanceOf(assetOut);
+
+        IERC20(v.asset).forceApprove(r.target, r.amountIn);
+        (bool ok, bytes memory err) = r.target.call(venueData);
+        if (!ok) revert VenueCallFailed(err);
+        IERC20(v.asset).forceApprove(r.target, 0);
+
+        received = _balanceOf(assetOut) - before;
+        if (received < r.minOut) revert BelowFloor(received, r.minOut);
+
+        address beneficiary = beneficiaryOf(r.capsuleId);
+        if (beneficiary == address(this)) {
+            // VAULT mode: the issuer's money stayed the issuer's, and the
+            // proceeds are booked rather than left loose in the contract
+            proceedsOf[r.capsuleId] += received;
+        } else {
+            _payOut(assetOut, beneficiary, received);
+        }
+
+        emit Executed(r.capsuleId, msg.sender, r.target, r.amountIn, received, beneficiary);
+    }
+
+    /// @notice The issuer collects what a VAULT-mode capsule earned.
+    function sweepProceeds(uint256 capsuleId) external nonReentrant onlyIssuer(capsuleId) returns (uint256 amount) {
+        amount = proceedsOf[capsuleId];
+        if (amount == 0) revert NothingToSweep();
+        proceedsOf[capsuleId] = 0;
+        _payOut(_capsules[capsuleId].assetOut, msg.sender, amount);
+        emit ProceedsSwept(capsuleId, msg.sender, amount);
+    }
+
+    function _balanceOf(address asset) internal view returns (uint256) {
+        return asset == address(0) ? address(this).balance : IERC20(asset).balanceOf(address(this));
+    }
+
+    function _payOut(address asset, address to, uint256 amount) internal {
+        if (asset == address(0)) {
+            (bool sent,) = to.call{value: amount}("");
+            if (!sent) revert PayoutFailed();
+        } else {
+            IERC20(asset).safeTransfer(to, amount);
+        }
+    }
+
+    /// @dev Kuru pays out native MON on a buy, so proceeds arrive this way.
+    receive() external payable {}
 
     // --- the nineteen checks ---------------------------------------------
     //
