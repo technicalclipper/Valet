@@ -16,6 +16,13 @@ export const chain = {
   label: process.env.NEXT_PUBLIC_CHAIN_LABEL ?? "local fork",
   isMainnet: (process.env.NEXT_PUBLIC_CHAIN_LABEL ?? "") === "Monad mainnet",
   explorer: process.env.NEXT_PUBLIC_EXPLORER_URL ?? "https://monadexplorer.com",
+  /**
+   * Block the Valet contract was deployed at. Log queries start here rather
+   * than at 0: on a fork, anything before the fork point has to be fetched from
+   * upstream, which is slow at best and an error at worst — and on mainnet,
+   * scanning from genesis is pointless when the contract did not exist.
+   */
+  deployBlock: BigInt(process.env.NEXT_PUBLIC_DEPLOY_BLOCK ?? "0"),
 } as const;
 
 export const addresses = {
