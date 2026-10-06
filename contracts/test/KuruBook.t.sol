@@ -12,7 +12,17 @@ interface IBook {
 contract KuruBookTest is Test {
     address constant MARKET = 0x065C9d28E428A0db40191a54d33d5b7c71a9C394;
 
-    function test_liveDepth() public view {
+    function setUp() public {
+        // These suites read the real Kuru book, so they need
+        // --fork-url https://rpc.monad.xyz. Skip rather than fail without it, so
+        // a plain `forge test` still runs everything that does not need a fork.
+        if (block.chainid != 143) {
+            vm.skip(true);
+            return;
+        }
+    }
+
+    function test_liveDepth() public {
         bytes memory b = IBook(MARKET).getL2Book();
         console.log("L2 book bytes:", b.length);
         uint256 words = b.length / 32;

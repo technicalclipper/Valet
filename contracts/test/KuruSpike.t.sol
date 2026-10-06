@@ -53,6 +53,13 @@ contract KuruSpikeTest is Test {
     SpikeExecutor exec;
 
     function setUp() public {
+        // These suites read the real Kuru book, so they need
+        // --fork-url https://rpc.monad.xyz. Skip rather than fail without it, so
+        // a plain `forge test` still runs everything that does not need a fork.
+        if (block.chainid != 143) {
+            vm.skip(true);
+            return;
+        }
         // fork supplied by --fork-url
         exec = new SpikeExecutor(BOB, MARKET);
     }
