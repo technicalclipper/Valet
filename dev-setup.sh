@@ -41,8 +41,20 @@ SLOT=$(cast index address $DEPLOYER $USDC_BALANCES_SLOT)
 cast rpc anvil_setStorageAt $USDC "$SLOT" \
   0x0000000000000000000000000000000000000000000000000000000ba43b7400 --rpc-url $RPC >/dev/null
 
+echo "compiling the demo policy..."
+# Compile first, so the capsule is minted with the hash of the document the app
+# will serve. notBefore has to agree too, since it is part of the hashed policy.
+# cast wraps --json output in a {success, data, ...} envelope
+NOW=$(cast block latest --json --rpc-url $RPC | python3 -c 'import json,sys;print(int(json.load(sys.stdin)["data"]["timestamp"],16))')
+POLICY=$(cd frontend && NOT_BEFORE=$NOW CAPSULE_ID=1 npx vite-node scripts/emit-policy.ts 2>/dev/null | tail -1)
+POLICY_HASH=$(echo "$POLICY" | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])')
+NOT_BEFORE=$(echo "$POLICY" | python3 -c 'import json,sys;print(json.load(sys.stdin)["notBefore"])')
+echo "  policyHash $POLICY_HASH (notBefore $NOT_BEFORE)"
+echo "  document   frontend/data/policies/1.json"
+
 echo "seeding the demo capsule..."
-VALET=$VALET AGENT=$AGENT forge script contracts/script/SeedDemo.s.sol --root contracts \
+VALET=$VALET AGENT=$AGENT POLICY_HASH=$POLICY_HASH NOT_BEFORE=$NOT_BEFORE \
+forge script contracts/script/SeedDemo.s.sol --root contracts \
   --rpc-url $RPC --private-key $PK --broadcast 2>/dev/null \
   | grep -E 'vaultId|capsuleId|holder' || true
 

@@ -9,10 +9,14 @@ import { beforeAll, describe, expect, it } from "vitest";
  *   see contracts/README.md for deploy + seed
  */
 const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? "http://localhost:8545";
-const VALET = process.env.NEXT_PUBLIC_VALET_ADDRESS ?? "0x3C2BafebbB0c8c58f39A976e725cD20D611d01e9";
+// No hardcoded fallback. dev-setup.sh redeploys on every anvil restart, so a
+// baked-in address goes stale and the failure reads as broken tests rather than
+// a missing environment.
+const VALET = process.env.NEXT_PUBLIC_VALET_ADDRESS;
 
 let live = false;
 beforeAll(async () => {
+  if (!VALET) return;
   process.env.NEXT_PUBLIC_RPC_URL = RPC;
   process.env.NEXT_PUBLIC_VALET_ADDRESS = VALET;
   process.env.NEXT_PUBLIC_CHAIN_ID = "143";

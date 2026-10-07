@@ -1,26 +1,142 @@
 @import "tailwindcss";
 
+/*
+ * Borrowed from Metropolis: the dark ground, the 80px hairline grid, the
+ * mirrored slab angles, and above all the restraint in the motion — the sheen
+ * idles for 55% of seven seconds before it moves, and that patience is most of
+ * why the original reads as expensive rather than busy.
+ *
+ * Deliberately not borrowed: the subject. Metropolis is a floating city, all
+ * expansion and warm sunset. Valet is a ceiling. The same craft pointed at the
+ * opposite feeling — containment, a line the fill cannot cross.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ink: #16161a;
+  --ink-2: #1c1c22;
+  --ink-3: #24242c;
+  --hair: rgb(255 255 255 / 0.09);
+  --text: #ecebf2;
+  --text-dim: #9d9db2;
+  --text-faint: #6b6b7e;
+
+  /* the three verdicts. the most distinctive thing we own, so it gets the neon */
+  --enforced: #b2ffa6;
+  --advisory: #c2b5ff;
+  --refused: #fd79ae;
+
+  --lav: #bfaaff;
+  --lav-deep: #7e65d4;
+  --peri: #c2b5ff;
+  --rose: #e8bbce;
+  --violet: #6e56bf;
+
+  --slab-l: linear-gradient(133deg, var(--lav), var(--lav-deep));
+  --slab-r: linear-gradient(226deg, var(--lav), var(--lav-deep));
+  --slab-face: radial-gradient(120% 160% at 16% 44%, #ffa9da, var(--rose) 42%, var(--peri));
+
+  --bloom: radial-gradient(1200px 420px at 50% 100%,
+    #4d3d7c 0%, #3b2f61 30%, #2a2342 55%, var(--ink) 100%);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-enforced: var(--enforced);
+  --color-advisory: var(--advisory);
+  --color-refused: var(--refused);
+  --color-peri: var(--peri);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html { color-scheme: dark; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* the grid, at Metropolis's 80px pitch */
+.grid-field {
+  background-image:
+    repeating-linear-gradient(to right, transparent 0 79px, var(--hair) 79px 80px),
+    repeating-linear-gradient(transparent 0 79px, var(--hair) 79px 80px);
+}
+
+/*
+ * Near the cap line the grid tightens. Metropolis uses the grid as a floor
+ * receding into open space; here it closes in, because the subject is a limit
+ * rather than a horizon.
+ */
+.grid-closing {
+  background-image:
+    repeating-linear-gradient(transparent 0 19px, var(--hair) 19px 20px),
+    repeating-linear-gradient(to right, transparent 0 79px, var(--hair) 79px 80px);
+}
+
+.bloom { background: var(--bloom); }
+
+/* the uppercase letterspaced monospace eyebrow does a lot of the work */
+.eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+/* --- motion. the long holds are the whole effect. --------------------- */
+
+@keyframes sheen {
+  0%, 55% { transform: translateX(0); }
+  100% { transform: translateX(400%); }
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -30%;
+  width: 18%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.13), transparent);
+  animation: sheen 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes nudge {
+  0%, 86% { transform: translateY(0); animation-timing-function: ease-in; }
+  93% { transform: translateY(135%); }
+  93.1% { transform: translateY(-135%); animation-timing-function: ease-out; }
+  100% { transform: translateY(0); }
+}
+.nudge { animation: nudge 5s infinite; }
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgb(178 255 166 / 0.45); }
+  70% { box-shadow: 0 0 0 7px rgb(178 255 166 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(178 255 166 / 0); }
+}
+.pulse-live { animation: pulse-ring 2.4s ease-out infinite; }
+
+@keyframes twinkle { 0% { opacity: 0.25; } 100% { opacity: 1; } }
+
+/* a check turning green, one after another, as a spend walks the asserts */
+@keyframes tick-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tick-in { animation: tick-in 0.22s ease-out both; }
+
+/* the fill rushes, then stops dead at the line */
+@keyframes fill-to-wall {
+  from { width: 0; }
+  to { width: var(--fill, 0%); }
+}
+.fill-bar { animation: fill-to-wall 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheen::after, .nudge, .pulse-live, .tick-in, .fill-bar { animation: none; }
 }

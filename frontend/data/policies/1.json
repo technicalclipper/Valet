@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "source": "Buy 5 USDC of MON daily for 30 days, max 1% slippage, send the MON to bob",
+  "clauses": [
+    {
+      "text": "5 USDC per action",
+      "verdict": "enforced",
+      "boundTo": "bounds.perAction",
+      "because": "Checked on every spend. A larger request is refused as OVER_ACTION_CAP."
+    },
+    {
+      "text": "every 1 day",
+      "verdict": "enforced",
+      "boundTo": "bounds.windowLength",
+      "because": "One window per period. An unused window is forfeited, not banked — a skipped day cannot be spent later."
+    },
+    {
+      "text": "30 periods",
+      "verdict": "enforced",
+      "boundTo": "bounds.windows",
+      "because": "After the last window the capsule refuses everything as WINDOWS_EXHAUSTED."
+    },
+    {
+      "text": "buy MON",
+      "verdict": "enforced",
+      "boundTo": "assetOut",
+      "because": "Fixed at mint. The agent chooses the venue, never the asset."
+    },
+    {
+      "text": "at most 1% slippage",
+      "verdict": "enforced",
+      "boundTo": "bounds.maxSlippageBps",
+      "because": "The floor the agent commits to must sit inside this, and the measured fill must clear that floor."
+    },
+    {
+      "text": "hard ceiling 10 USDC",
+      "verdict": "enforced",
+      "boundTo": "bounds.hardCap",
+      "because": "Nothing lifts this. Not an escalation, not the issuer, not a compromised backend."
+    },
+    {
+      "text": "lifetime total 150 USDC",
+      "verdict": "enforced",
+      "boundTo": "bounds.totalCap",
+      "because": "The most that can ever move through this capsule."
+    },
+    {
+      "text": "venue: kuru",
+      "verdict": "enforced",
+      "boundTo": "allowedTargets",
+      "because": "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies."
+    },
+    {
+      "text": "proceeds to the principal",
+      "verdict": "enforced",
+      "boundTo": "beneficiaryMode",
+      "because": "Checked against the request on every spend, so the agent cannot pay itself."
+    }
+  ],
+  "bounds": {
+    "perAction": "5000000",
+    "perWindow": "5000000",
+    "hardCap": "10000000",
+    "totalCap": "150000000",
+    "windows": 30,
+    "windowLength": 86400,
+    "notBefore": 1791391062,
+    "expiresAt": 1793983062,
+    "maxSlippageBps": 100
+  },
+  "assetIn": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
+  "assetOut": "0x0000000000000000000000000000000000000000",
+  "beneficiaryMode": 1,
+  "fixedBeneficiary": "0x0000000000000000000000000000000000000000",
+  "allowedTargets": [
+    "0x065C9d28E428A0db40191a54d33d5b7c71a9C394"
+  ],
+  "advisory": []
+}

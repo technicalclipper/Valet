@@ -21,7 +21,14 @@ contract SeedDemo is Script {
         Valet valet = Valet(payable(vm.envAddress("VALET")));
         address agent = vm.envAddress("AGENT");
         address principal = vm.envOr("PRINCIPAL", address(0xB0B));
-        uint64 start = uint64(block.timestamp);
+        // Both come from the frontend's policy compiler. Minting with a hash of
+        // anything other than the document the app serves would make the
+        // verification badge correctly report a mismatch.
+        uint64 start = uint64(vm.envOr("NOT_BEFORE", block.timestamp));
+        bytes32 policyHash = vm.envOr(
+            "POLICY_HASH",
+            keccak256("Buy 5 USDC of MON daily for 30 days, max 1% slippage, MON to bob")
+        );
 
         vm.startBroadcast();
 
@@ -38,7 +45,7 @@ contract SeedDemo is Script {
             mode: BeneficiaryMode.PRINCIPAL,
             fixedBeneficiary: address(0),
             assetOut: address(0), // Kuru pays native MON on a buy
-            policyHash: keccak256("Buy 5 USDC of MON daily for 30 days, max 1% slippage, MON to bob"),
+            policyHash: policyHash,
             bounds: Bounds({
                 perAction: 5e6,
                 perWindow: 5e6,

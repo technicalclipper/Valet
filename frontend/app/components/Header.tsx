@@ -1,0 +1,19 @@
+import Link from "next/link";
+import { ChainBadge } from "./ChainBadge";
+
+export function Header() {
+  return (
+    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink/80 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <Link href="/" className="group flex items-baseline gap-2">
+          <span className="font-mono text-lg leading-none">⇥</span>
+          <span className="text-sm font-medium tracking-tight">Valet</span>
+          <span className="hidden text-xs text-text-faint sm:inline">
+            bounded authority for agents
+          </span>
+        </Link>
+        <ChainBadge />
+      </div>
+    </header>
+  );
+}
