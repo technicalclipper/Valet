@@ -3,55 +3,55 @@
   "source": "Buy 5 USDC of MON daily for 30 days, max 1% slippage, send the MON to bob",
   "clauses": [
     {
-      "text": "5 USDC per action",
+      "text": "spends at most 5 USDC at a time",
       "verdict": "enforced",
       "boundTo": "bounds.perAction",
       "because": "Checked on every spend. A larger request is refused as OVER_ACTION_CAP."
     },
     {
-      "text": "every 1 day",
+      "text": "once a day, and no more often",
       "verdict": "enforced",
       "boundTo": "bounds.windowLength",
       "because": "One window per period. An unused window is forfeited, not banked — a skipped day cannot be spent later."
     },
     {
-      "text": "30 periods",
+      "text": "for 30 days, then it stops",
       "verdict": "enforced",
       "boundTo": "bounds.windows",
       "because": "After the last window the capsule refuses everything as WINDOWS_EXHAUSTED."
     },
     {
-      "text": "buy MON",
+      "text": "buys MON and nothing else",
       "verdict": "enforced",
       "boundTo": "assetOut",
       "because": "Fixed at mint. The agent chooses the venue, never the asset."
     },
     {
-      "text": "at most 1% slippage",
+      "text": "accepts no fill worse than 1%",
       "verdict": "enforced",
       "boundTo": "bounds.maxSlippageBps",
       "because": "The floor the agent commits to must sit inside this, and the measured fill must clear that floor."
     },
     {
-      "text": "hard ceiling 10 USDC",
+      "text": "never more than 10 USDC in one go, whatever anyone approves",
       "verdict": "enforced",
       "boundTo": "bounds.hardCap",
       "because": "Nothing lifts this. Not an escalation, not the issuer, not a compromised backend."
     },
     {
-      "text": "lifetime total 150 USDC",
+      "text": "150 USDC in total, ever",
       "verdict": "enforced",
       "boundTo": "bounds.totalCap",
       "because": "The most that can ever move through this capsule."
     },
     {
-      "text": "venue: kuru",
+      "text": "trades on Kuru MON-USDC only",
       "verdict": "enforced",
       "boundTo": "allowedTargets",
       "because": "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies."
     },
     {
-      "text": "proceeds to the principal",
+      "text": "sends the proceeds to the recipient",
       "verdict": "enforced",
       "boundTo": "beneficiaryMode",
       "because": "Checked against the request on every spend, so the agent cannot pay itself."
@@ -64,8 +64,8 @@
     "totalCap": "150000000",
     "windows": 30,
     "windowLength": 86400,
-    "notBefore": 1791391062,
-    "expiresAt": 1793983062,
+    "notBefore": 1791392187,
+    "expiresAt": 1793984187,
     "maxSlippageBps": 100
   },
   "assetIn": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",

@@ -182,16 +182,29 @@ export function compile(
   const beneficiaryMode = ben.kind === "vault" ? 0 : ben.kind === "principal" ? 1 : 2;
   if (beneficiaryMode === 2 && !ben.label) blockers.push("A fixed beneficiary needs an address.");
 
+  // Clause text is read by a person deciding whether to accept a permission, so
+  // it is written as English rather than as a field dump. "every 1 day" and
+  // "30 periods" were both correct and both things nobody says.
+  const UNIT = amt.asset.toUpperCase();
+  const every = extracted.cadence!.every;
+  const unit = extracted.cadence!.unit;
+  const howOften =
+    every === 1
+      ? { hour: "every hour", day: "once a day", week: "once a week", month: "once a month" }[unit]
+      : `once every ${every} ${unit}s`;
+  const forHowLong = `${periods} ${unit}${periods === 1 ? "" : "s"}`;
+  const WHERE = { vault: "back into the vault", principal: "to the recipient", fixed: "to one fixed address" }[ben.kind];
+
   clauses.push(
-    { text: `${amt.value} ${amt.asset.toUpperCase()} per action`, verdict: "enforced", boundTo: "bounds.perAction", because: "Checked on every spend. A larger request is refused as OVER_ACTION_CAP." },
-    { text: `every ${extracted.cadence!.every} ${extracted.cadence!.unit}`, verdict: "enforced", boundTo: "bounds.windowLength", because: "One window per period. An unused window is forfeited, not banked — a skipped day cannot be spent later." },
-    { text: `${periods} periods`, verdict: "enforced", boundTo: "bounds.windows", because: "After the last window the capsule refuses everything as WINDOWS_EXHAUSTED." },
-    { text: `buy ${extracted.buyAsset!.toUpperCase()}`, verdict: "enforced", boundTo: "assetOut", because: "Fixed at mint. The agent chooses the venue, never the asset." },
-    { text: `at most ${slippagePct}% slippage`, verdict: "enforced", boundTo: "bounds.maxSlippageBps", because: "The floor the agent commits to must sit inside this, and the measured fill must clear that floor." },
-    { text: `hard ceiling ${formatUnits(hardCap, ASSETS[assetInKey].decimals)} ${amt.asset.toUpperCase()}`, verdict: "enforced", boundTo: "bounds.hardCap", because: "Nothing lifts this. Not an escalation, not the issuer, not a compromised backend." },
-    { text: `lifetime total ${formatUnits(totalCap, ASSETS[assetInKey].decimals)} ${amt.asset.toUpperCase()}`, verdict: "enforced", boundTo: "bounds.totalCap", because: "The most that can ever move through this capsule." },
-    { text: `venue: ${venueKeys.join(", ")}`, verdict: "enforced", boundTo: "allowedTargets", because: "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies." },
-    { text: `proceeds to the ${ben.kind}`, verdict: "enforced", boundTo: "beneficiaryMode", because: "Checked against the request on every spend, so the agent cannot pay itself." },
+    { text: `spends at most ${amt.value} ${UNIT} at a time`, verdict: "enforced", boundTo: "bounds.perAction", because: "Checked on every spend. A larger request is refused as OVER_ACTION_CAP." },
+    { text: `${howOften}, and no more often`, verdict: "enforced", boundTo: "bounds.windowLength", because: "One window per period. An unused window is forfeited, not banked — a skipped day cannot be spent later." },
+    { text: `for ${forHowLong}, then it stops`, verdict: "enforced", boundTo: "bounds.windows", because: "After the last window the capsule refuses everything as WINDOWS_EXHAUSTED." },
+    { text: `buys ${extracted.buyAsset!.toUpperCase()} and nothing else`, verdict: "enforced", boundTo: "assetOut", because: "Fixed at mint. The agent chooses the venue, never the asset." },
+    { text: `accepts no fill worse than ${slippagePct}%`, verdict: "enforced", boundTo: "bounds.maxSlippageBps", because: "The floor the agent commits to must sit inside this, and the measured fill must clear that floor." },
+    { text: `never more than ${formatUnits(hardCap, ASSETS[assetInKey].decimals)} ${UNIT} in one go, whatever anyone approves`, verdict: "enforced", boundTo: "bounds.hardCap", because: "Nothing lifts this. Not an escalation, not the issuer, not a compromised backend." },
+    { text: `${formatUnits(totalCap, ASSETS[assetInKey].decimals)} ${UNIT} in total, ever`, verdict: "enforced", boundTo: "bounds.totalCap", because: "The most that can ever move through this capsule." },
+    { text: `trades on ${venueKeys.map((v) => VENUES[v]?.label ?? v).join(" or ")} only`, verdict: "enforced", boundTo: "allowedTargets", because: "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies." },
+    { text: `sends the proceeds ${WHERE}`, verdict: "enforced", boundTo: "beneficiaryMode", because: "Checked against the request on every spend, so the agent cannot pay itself." },
   );
 
   if (blockers.length) return { ok: false, clauses, blockers };

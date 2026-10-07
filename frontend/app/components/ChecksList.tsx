@@ -14,7 +14,7 @@ export function ChecksList({ refusedBy }: { refusedBy: AssertName }) {
   const stopAt = refusedBy === "NONE" ? flat.length : flat.indexOf(refusedBy);
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
       {ASSERT_GROUPS.map((group) => (
         <div key={group.label}>
           <p className="eyebrow">{group.label}</p>
@@ -28,25 +28,18 @@ export function ChecksList({ refusedBy }: { refusedBy: AssertName }) {
                     className="font-mono text-[11px]"
                     style={{
                       color:
-                        state === "refused"
-                          ? "var(--refused)"
-                          : state === "passed"
-                            ? "var(--enforced)"
-                            : "var(--text-faint)",
+                        state === "refused" ? "#d8366f" : state === "passed" ? "#2f9e5e" : "#a8a8b8",
                     }}
                   >
                     {state === "refused" ? "✗" : state === "passed" ? "✓" : "·"}
                   </span>
-                  <span className={state === "unreached" ? "text-text-faint" : "text-text-dim"}>
+                  <span className={state === "unreached" ? "on-card-faint" : "on-card-dim"}>
                     {ASSERT_LABEL[name] ?? name}
                   </span>
                   {state === "refused" && (
-                    <code className="ml-auto font-mono text-[11px]" style={{ color: "var(--refused)" }}>
+                    <code className="ml-auto font-mono text-[11px]" style={{ color: "#d8366f" }}>
                       {name}
                     </code>
-                  )}
-                  {state === "unreached" && (
-                    <span className="ml-auto text-[11px] text-text-faint">not reached</span>
                   )}
                 </li>
               );

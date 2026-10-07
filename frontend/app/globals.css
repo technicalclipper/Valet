@@ -90,6 +90,50 @@ body {
   color: var(--text-faint);
 }
 
+/* --- white sticker cards ---------------------------------------------
+ *
+ * Chunky border, hard offset shadow, no blur. Deliberately playful against the
+ * dark ground, and tied back to the rest by taking the shadow from the
+ * Metropolis palette rather than using black — a black drop shadow would read
+ * as a different design borrowed from somewhere else.
+ *
+ * Used for facts: the four numbers, what the agent may and may not do, and the
+ * evidence rows. The cap meters stay dark, because the neon wall only works
+ * against dark and that panel is the one piece of drama on the page.
+ */
+.card-pop {
+  --on-card: #16161a;
+  --on-card-dim: #4b4b5a;
+  --on-card-faint: #7b7b8d;
+  --pop: var(--lav-deep);
+
+  background: #fdfcff;
+  color: var(--on-card);
+  border: 2px solid #16161a;
+  border-radius: 14px;
+  box-shadow: 5px 5px 0 0 var(--pop);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+a.card-pop:hover,
+.card-pop--lift:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 0 var(--pop);
+}
+
+/* an open disclosure should settle rather than keep hovering */
+details.card-pop[open] {
+  box-shadow: 3px 3px 0 0 var(--pop);
+}
+
+.card-pop .eyebrow { color: var(--on-card-faint); }
+.on-card { color: var(--on-card); }
+.on-card-dim { color: var(--on-card-dim); }
+.on-card-faint { color: var(--on-card-faint); }
+
+/* the hairline inside a white card has to invert too */
+.card-pop .rule { border-color: rgb(22 22 26 / 0.12); }
+
 /* --- motion. the long holds are the whole effect. --------------------- */
 
 @keyframes sheen {

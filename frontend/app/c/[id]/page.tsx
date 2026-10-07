@@ -117,16 +117,16 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
             <p className="mt-2 text-[13px] text-text-faint">{status.line}</p>
 
             {/* the four numbers that matter, in words */}
-            <dl className="mt-8 grid gap-px overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.06] sm:grid-cols-4">
-              {[
-                ["each day", amount(b.perAction)],
-                ["for", `${b.windows} days`],
-                ["the MON goes", BENEFICIARY[capsule.mode]],
-                ["worst fill accepted", percent(b.maxSlippageBps)],
-              ].map(([k, v]) => (
-                <div key={k} className="bg-ink-2 px-4 py-3">
+            <dl className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {([
+                ["each day", amount(b.perAction), "#7e65d4"],
+                ["for", `${b.windows} days`, "#c2b5ff"],
+                ["the MON goes", BENEFICIARY[capsule.mode], "#2f9e5e"],
+                ["worst fill accepted", percent(b.maxSlippageBps), "#d8366f"],
+              ] as const).map(([k, v, pop]) => (
+                <div key={k} className="card-pop card-pop--lift px-4 py-3.5" style={{ ["--pop" as string]: pop }}>
                   <dt className="eyebrow">{k}</dt>
-                  <dd className="mt-1 text-sm text-text">{v}</dd>
+                  <dd className="mt-1 text-xl font-semibold tracking-tight on-card">{v}</dd>
                 </div>
               ))}
             </dl>
@@ -154,29 +154,25 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
 
           {/* --- may / may not ------------------------------------------ */}
           {policy && (
-            <section className="grid gap-6 lg:grid-cols-2">
-              <div>
-                <h2 className="text-sm font-medium" style={{ color: "var(--enforced)" }}>
-                  What the agent may do
-                </h2>
-                <p className="mt-1 text-[13px] text-text-faint">
+            <section className="grid gap-5 lg:grid-cols-2">
+              <div className="card-pop p-5" style={{ ["--pop" as string]: "#2f9e5e" }}>
+                <h2 className="text-base font-semibold on-card">What the agent may do</h2>
+                <p className="mt-1 text-[13px] on-card-faint">
                   Checked on chain, on every spend. {enforced.length} terms.
                 </p>
                 <ul className="mt-3 space-y-2">
                   {enforced.map((c, i) => (
                     <li key={i} className="flex items-baseline gap-2.5 text-[13px]">
-                      <span className="font-mono text-[11px]" style={{ color: "var(--enforced)" }}>✓</span>
-                      <span className="text-text-dim">{c.text}</span>
+                      <span className="font-mono text-[11px]" style={{ color: "#2f9e5e" }}>✓</span>
+                      <span className="on-card-dim">{c.text}</span>
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div>
-                <h2 className="text-sm font-medium" style={{ color: "var(--refused)" }}>
-                  What it may not
-                </h2>
-                <p className="mt-1 text-[13px] text-text-faint">
+              <div className="card-pop p-5" style={{ ["--pop" as string]: "#d8366f" }}>
+                <h2 className="text-base font-semibold on-card">What it may not</h2>
+                <p className="mt-1 text-[13px] on-card-faint">
                   Not a policy we enforce — a transaction that cannot be built.
                 </p>
                 <ul className="mt-3 space-y-2 text-[13px]">
@@ -188,13 +184,13 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                     "hold the money at any point — it never leaves the contract",
                   ].map((t) => (
                     <li key={t} className="flex items-baseline gap-2.5">
-                      <span className="font-mono text-[11px]" style={{ color: "var(--refused)" }}>✗</span>
-                      <span className="text-text-dim">{t}</span>
+                      <span className="font-mono text-[11px]" style={{ color: "#d8366f" }}>✗</span>
+                      <span className="on-card-dim">{t}</span>
                     </li>
                   ))}
                 </ul>
                 {(advisory.length > 0 || refused.length > 0) && (
-                  <p className="mt-3 text-[11px] text-text-faint">
+                  <p className="mt-3 text-[11px] on-card-faint">
                     {advisory.length} advisory {advisory.length === 1 ? "clause" : "clauses"} passed to
                     the agent as instructions · {refused.length} refused at compose time
                   </p>
@@ -217,21 +213,21 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                 }
                 tone={verification.verified ? "good" : "bad"}
               >
-                <p className="text-[13px] leading-relaxed text-text-dim">
+                <p className="text-[13px] leading-relaxed on-card-dim">
                   Two checks, answering different questions. The hash says this document is the one
                   hashed at mint. The field list says the capsule on chain actually implements it — a
                   server could do the first honestly and still mint something else, and only the
                   second rules that out.
                 </p>
-                <dl className="mt-4 space-y-1 font-mono text-[11px]">
+                <dl className="mt-4 space-y-1 font-mono text-[11px] on-card-dim">
                   <div className="flex flex-wrap gap-2">
-                    <dt className="w-40 shrink-0 text-text-faint">document hashed</dt>
+                    <dt className="w-40 shrink-0 on-card-faint">document hashed</dt>
                     <dd className="break-all" style={{ color: verification.hashMatches ? "var(--enforced)" : "var(--refused)" }}>
                       {verification.documentHash}
                     </dd>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <dt className="w-40 shrink-0 text-text-faint">capsule.policyHash</dt>
+                    <dt className="w-40 shrink-0 on-card-faint">capsule.policyHash</dt>
                     <dd className="break-all" style={{ color: verification.hashMatches ? "var(--enforced)" : "var(--refused)" }}>
                       {verification.chainHash}
                     </dd>
@@ -239,7 +235,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                 </dl>
                 <table className="mt-4 w-full text-left font-mono text-[11px]">
                   <thead>
-                    <tr className="text-text-faint">
+                    <tr className="on-card-faint">
                       <th className="pb-1 font-normal">field</th>
                       <th className="pb-1 font-normal">in the document</th>
                       <th className="pb-1 font-normal">on chain</th>
@@ -247,15 +243,15 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                   </thead>
                   <tbody>
                     {verification.fields.map((f) => (
-                      <tr key={f.field} className="border-t border-white/[0.05]">
-                        <td className="py-1 text-text-dim">
-                          <span style={{ color: f.ok ? "var(--enforced)" : "var(--refused)" }}>
+                      <tr key={f.field} className="rule border-t">
+                        <td className="py-1 on-card-dim">
+                          <span style={{ color: f.ok ? "#2f9e5e" : "#d8366f" }}>
                             {f.ok ? "✓" : "✗"}
                           </span>{" "}
                           {f.field}
                         </td>
-                        <td className="py-1 text-text-faint">{f.document.length > 20 ? `${f.document.slice(0, 18)}…` : f.document}</td>
-                        <td className="py-1 text-text">{f.chain.length > 20 ? `${f.chain.slice(0, 18)}…` : f.chain}</td>
+                        <td className="py-1 on-card-faint">{f.document.length > 20 ? `${f.document.slice(0, 18)}…` : f.document}</td>
+                        <td className="py-1 on-card">{f.chain.length > 20 ? `${f.chain.slice(0, 18)}…` : f.chain}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -272,9 +268,9 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
               }
               tone={refusedBy === "NONE" ? "good" : "bad"}
             >
-              <p className="mb-4 text-[13px] leading-relaxed text-text-dim">
+              <p className="mb-4 text-[13px] leading-relaxed on-card-dim">
                 Asked of the contract, not worked out here: these come from{" "}
-                <code className="font-mono text-text">preflight()</code>, which shares its body with
+                <code className="font-mono on-card">preflight()</code>, which shares its body with
                 the function that actually charges — so this list cannot promise anything the chain
                 would refuse.
               </p>
@@ -286,14 +282,14 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
               summary={`${history.length} ${history.length === 1 ? "event" : "events"}, rebuilt from the chain rather than from anything we wrote down.`}
             >
               <ol className="space-y-2 text-[13px]">
-                {history.length === 0 && <li className="text-text-faint">nothing recorded yet</li>}
+                {history.length === 0 && <li className="on-card-faint">nothing recorded yet</li>}
                 {history.map((h, i) => (
-                  <li key={`${h.txHash}-${i}`} className="flex flex-wrap items-baseline gap-x-3 border-l border-white/10 pl-3">
-                    <span style={{ color: "var(--peri)" }}>{h.kind}</span>
-                    <span className="font-mono text-[11px] text-text-faint">block {h.blockNumber.toString()}</span>
+                  <li key={`${h.txHash}-${i}`} className="rule flex flex-wrap items-baseline gap-x-3 border-l pl-3">
+                    <span className="font-medium" style={{ color: "#5b45a8" }}>{h.kind}</span>
+                    <span className="font-mono text-[11px] on-card-faint">block {h.blockNumber.toString()}</span>
                     <a
                       href={`${chain.explorer}/tx/${h.txHash}`}
-                      className="ml-auto font-mono text-[11px] text-text-faint underline decoration-dotted hover:text-text"
+                      className="ml-auto font-mono text-[11px] on-card-faint underline decoration-dotted"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -305,7 +301,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
             </Proof>
 
             <Proof title="who holds what" summary="The three parties, and the keys behind them.">
-              <dl className="grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-2">
+              <dl className="grid gap-x-6 gap-y-3 text-[13px] sm:grid-cols-2">
                 {[
                   ["issuer — may revoke, pause, top up, tighten", capsule.issuer],
                   ["you — may pause or hand it back", capsule.principal],
@@ -314,7 +310,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                 ].map(([k, v]) => (
                   <div key={k}>
                     <dt className="eyebrow">{k}</dt>
-                    <dd className="mt-0.5 font-mono text-[11px] text-text-dim">{v.startsWith("0x") ? shortAddress(v) : v}</dd>
+                    <dd className="mt-0.5 font-mono text-[11px] on-card-dim">{v.startsWith("0x") ? shortAddress(v) : v}</dd>
                   </div>
                 ))}
               </dl>
