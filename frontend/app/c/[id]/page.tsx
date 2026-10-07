@@ -3,7 +3,7 @@ import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
 import { Proof } from "../../components/Proof";
 import { ChecksList } from "../../components/ChecksList";
-import { loadPolicy } from "../../../lib/policy/store";
+import { decodeSentence, loadPolicy } from "../../../lib/policy/store";
 import { readCapsule, readHeadroom, preflight, readVault, type AssertName } from "../../../lib/chain/reads";
 import { readHistory } from "../../../lib/chain/events";
 import { verifyCapsule } from "../../../lib/chain/verify";
@@ -15,10 +15,20 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 
 export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   // Next 16: params is async-only.
-  const { id } = await props.params;
+  // Next 16: params and searchParams are both async-only.
+  const [{ id }, query] = await Promise.all([props.params, props.searchParams]);
   const capsuleId = BigInt(id);
 
-  const [capsule, policy] = await Promise.all([readCapsule(capsuleId), loadPolicy(id)]);
+  const capsule = await readCapsule(capsuleId);
+
+  // A link may carry the sentence it was written from. Recompiling it against
+  // the capsule's own notBefore reproduces the document without anyone having
+  // stored it — and the hash check then has nothing to trust but the chain.
+  const linked = typeof query.s === "string" ? decodeSentence(query.s) : null;
+  const policy = await loadPolicy(
+    id,
+    linked ? { sentence: linked, notBefore: Number(capsule.bounds.notBefore) } : undefined,
+  );
   const [vault, head] = await Promise.all([readVault(capsule.vaultId), readHeadroom(capsuleId)]);
   const verification = policy ? verifyCapsule(policy, capsule) : null;
   const b = capsule.bounds;

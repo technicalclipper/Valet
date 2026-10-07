@@ -59,6 +59,8 @@ export interface Policy {
   allowedTargets: string[];
   /** passed to the agent as instructions; never enforced */
   advisory: string[];
+  /** keccak of the canonical document; filled in by `withHash` */
+  policyHash?: string;
 }
 
 export interface CompileResult {

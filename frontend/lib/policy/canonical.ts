@@ -29,3 +29,16 @@ export function canonicalize(value: unknown): string {
 export function policyHash(policy: unknown): `0x${string}` {
   return keccak256(toHex(canonicalize(policy)));
 }
+
+/**
+ * A policy carrying its own hash.
+ *
+ * The hash has to be computed over the document *without* the hash field, or
+ * it would be hashing itself. Keeping that in one function means no caller has
+ * to remember it — a mistake that would surface only as an unverifiable capsule
+ * long after minting.
+ */
+export function withHash<T extends object>(policy: T): T & { policyHash: `0x${string}` } {
+  const { policyHash: _ignored, ...rest } = policy as T & { policyHash?: string };
+  return { ...(policy as T), policyHash: policyHash(rest) };
+}

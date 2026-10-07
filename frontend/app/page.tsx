@@ -69,8 +69,14 @@ export default async function Home() {
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/c/1"
+              href="/create"
               className="rounded-full bg-text px-5 py-2.5 text-sm font-medium text-ink transition hover:opacity-90"
+            >
+              Write a permission
+            </Link>
+            <Link
+              href="/c/1"
+              className="rounded-full border border-white/15 px-5 py-2.5 text-sm text-text-dim transition hover:border-white/30 hover:text-text"
             >
               Open a live capsule
             </Link>
