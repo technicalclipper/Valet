@@ -103,28 +103,47 @@ export default function CreatePage() {
         </section>
 
         <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
-          {/* --- the sentence ------------------------------------------- */}
-          <section>
+          {/* --- the sentence -------------------------------------------
+           *
+           * Paper, deliberately. The instruction is to write a permission in
+           * your own words, and a dark terminal input argues against that —
+           * white with a hard shadow reads as something you write on rather
+           * than something you configure. It is also the one place on the page
+           * the reader is the author, so it gets the largest type.
+           */}
+          <section className="card-pop p-5" style={{ ["--pop" as string]: "#7e65d4" }}>
             <label htmlFor="sentence" className="eyebrow">
               the permission, in your own words
             </label>
             <textarea
               id="sentence"
-              rows={3}
+              rows={2}
               value={sentence}
               onChange={(e) => setSentence(e.target.value)}
-              className="mt-2 w-full resize-none rounded-lg border border-white/[0.12] bg-ink-2 px-4 py-3 text-[15px] leading-relaxed text-text outline-none focus:border-white/30"
+              spellCheck={false}
+              placeholder="Buy 5 USDC of MON daily for 30 days, max 1% slippage, send the MON to bob"
+              className="mt-2 w-full resize-none border-0 bg-transparent p-0 text-[17px] leading-relaxed on-card outline-none placeholder:text-[#b4b4c4]"
             />
-            <div className="mt-2 flex flex-wrap gap-2">
-              {EXAMPLES.map((e, i) => (
-                <button
-                  key={i}
-                  onClick={() => setSentence(e)}
-                  className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-text-faint transition hover:border-white/25 hover:text-text"
-                >
-                  {i === EXAMPLES.length - 1 ? "one we refuse" : `example ${i + 1}`}
-                </button>
-              ))}
+            <div className="rule mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+              <span className="eyebrow mr-1">try</span>
+              {EXAMPLES.map((e, i) => {
+                const isRefusal = i === EXAMPLES.length - 1;
+                const active = e === sentence;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSentence(e)}
+                    className="rounded-full border-2 px-2.5 py-0.5 text-[11px] font-medium transition"
+                    style={{
+                      borderColor: active ? "#16161a" : isRefusal ? "#f0b8cd" : "rgb(22 22 26 / 0.15)",
+                      background: active ? "#16161a" : "transparent",
+                      color: active ? "#fdfcff" : isRefusal ? "#b5245a" : "#5c5c6e",
+                    }}
+                  >
+                    {isRefusal ? "one we refuse" : `example ${i + 1}`}
+                  </button>
+                );
+              })}
             </div>
           </section>
 

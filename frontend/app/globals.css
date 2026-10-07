@@ -121,6 +121,11 @@ a.card-pop:hover,
   box-shadow: 7px 7px 0 0 var(--pop);
 }
 
+/* writing in a card should feel like the card is listening */
+.card-pop:focus-within {
+  box-shadow: 7px 7px 0 0 var(--pop);
+}
+
 /* an open disclosure should settle rather than keep hovering */
 details.card-pop[open] {
   box-shadow: 3px 3px 0 0 var(--pop);
