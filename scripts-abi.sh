@@ -12,7 +12,9 @@ keep = {'getCapsule','getVault','headroom','preflight','preflightElevated','bene
         'openVault','fundVault','mintCapsule','claim','execute','executeElevated',
         'requestEscalation','approveEscalation','revoke','surrender','tighten',
         'revokeVaultAndSweep','revokeVault','sweepProceeds',
-        'setPausedByIssuer','setPausedByPrincipal'}
+        'setPausedByIssuer','setPausedByPrincipal',
+        'claimBySignature','principalActionBySignature','claimDigest','principalActionDigest',
+        'principalNonce','CLAIM_TYPEHASH','PRINCIPAL_ACTION_TYPEHASH','ACTION_PAUSE','ACTION_SURRENDER'}
 events = {'Executed','CapsuleMinted','CapsuleClaimed','CapsuleRevoked','CapsuleSurrendered',
           'CapsulePaused','CapsuleTightened','VaultOpened','VaultFunded','VaultRevoked',
           'VaultSwept','ProceedsSwept','EscalationRequested','EscalationApproved','EscalationConsumed'}

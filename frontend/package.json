@@ -12,6 +12,9 @@
     "abi": "bash ../scripts-abi.sh"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.48.0",
+    "@stripe/crypto": "^1.1.3",
+    "@stripe/stripe-js": "^10.0.0",
     "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",

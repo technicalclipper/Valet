@@ -23,6 +23,20 @@ contract Valet is ReentrancyGuard, EIP712 {
     bytes32 public constant ESCALATION_TYPEHASH =
         keccak256("Escalation(uint256 capsuleId,uint256 amount,uint256 nonce,uint64 deadline)");
 
+    /// @dev The recipient's side of a capsule is signature-first for a reason.
+    ///      Someone being set up with a permission has no wallet, no seed
+    ///      phrase and no gas — that is the whole point of handing them a link.
+    ///      Requiring them to transact would mean requiring them to be funded,
+    ///      and paying their gas through a paymaster would mean a credit balance
+    ///      that can run out mid-demo. A signature needs neither.
+    bytes32 public constant CLAIM_TYPEHASH =
+        keccak256("Claim(uint256 capsuleId,address holder,uint256 nonce,uint64 deadline)");
+    bytes32 public constant PRINCIPAL_ACTION_TYPEHASH =
+        keccak256("PrincipalAction(uint256 capsuleId,uint8 action,bool value,uint256 nonce,uint64 deadline)");
+
+    uint8 public constant ACTION_PAUSE = 0;
+    uint8 public constant ACTION_SURRENDER = 1;
+
     constructor() EIP712("Valet", "1") {}
 
     // --- storage ---
@@ -47,6 +61,10 @@ contract Valet is ReentrancyGuard, EIP712 {
     /// @dev next nonce per capsule; a request takes one, so a signature for one
     ///      request can never be replayed against another
     mapping(uint256 => uint256) public escalationNonce;
+
+    /// @dev One counter per capsule for the recipient's signed actions, so a
+    ///      signature for one action can never be replayed as another.
+    mapping(uint256 => uint256) public principalNonce;
 
     // --- events: the audit trail is the chain's, not a log we write ---
 
@@ -107,6 +125,7 @@ contract Valet is ReentrancyGuard, EIP712 {
     error OverApprovedAmount(uint256 asked, uint256 approved);
     error BadSignature();
     error PointlessEscalation();
+    error UnknownAction();
 
     // --- role gates -------------------------------------------------------
     // Three parties share one capsule without sharing power.
@@ -466,6 +485,83 @@ contract Valet is ReentrancyGuard, EIP712 {
     }
 
 
+
+
+    // --- the recipient acts by signature, never by transaction -------------
+    //
+    // Every function here may be submitted by anyone. Authority is in the
+    // signature, so a recipient who has never held a token can claim a
+    // capsule, pause it, or hand it back, and a relayer pays. No paymaster, no
+    // gas credits, nothing to top up.
+
+    function claimDigest(uint256 capsuleId, address holder, uint256 nonce, uint64 deadline)
+        public
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(keccak256(abi.encode(CLAIM_TYPEHASH, capsuleId, holder, nonce, deadline)));
+    }
+
+    function principalActionDigest(uint256 capsuleId, uint8 action, bool value, uint256 nonce, uint64 deadline)
+        public
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(
+            keccak256(abi.encode(PRINCIPAL_ACTION_TYPEHASH, capsuleId, action, value, nonce, deadline))
+        );
+    }
+
+    /// @notice Claim with the principal's (or issuer's) signature.
+    /// @dev Same single-use guarantee as claim(): holder must still be unset.
+    function claimBySignature(uint256 capsuleId, address holder, uint64 deadline, bytes calldata signature)
+        external
+    {
+        Capsule storage c = _capsules[capsuleId];
+        if (c.issuer == address(0)) revert NoSuchCapsule();
+        if (c.holder != address(0)) revert AlreadyClaimed();
+        if (holder == address(0)) revert ZeroAddress();
+        if (block.timestamp >= deadline) revert PastDeadline();
+
+        uint256 nonce = principalNonce[capsuleId];
+        bytes32 digest = claimDigest(capsuleId, holder, nonce, deadline);
+        bool byPrincipal = SignatureChecker.isValidSignatureNow(c.principal, digest, signature);
+        bool byIssuer = byPrincipal || SignatureChecker.isValidSignatureNow(c.issuer, digest, signature);
+        if (!byIssuer) revert BadSignature();
+
+        principalNonce[capsuleId] = nonce + 1;
+        c.holder = holder;
+        emit CapsuleClaimed(capsuleId, holder, byPrincipal ? c.principal : c.issuer);
+    }
+
+    /// @notice Pause or hand back, with the principal's signature.
+    function principalActionBySignature(
+        uint256 capsuleId,
+        uint8 action,
+        bool value,
+        uint64 deadline,
+        bytes calldata signature
+    ) external {
+        Capsule storage c = _capsules[capsuleId];
+        if (c.issuer == address(0)) revert NoSuchCapsule();
+        if (block.timestamp >= deadline) revert PastDeadline();
+
+        uint256 nonce = principalNonce[capsuleId];
+        bytes32 digest = principalActionDigest(capsuleId, action, value, nonce, deadline);
+        if (!SignatureChecker.isValidSignatureNow(c.principal, digest, signature)) revert BadSignature();
+
+        principalNonce[capsuleId] = nonce + 1;
+
+        if (action == ACTION_PAUSE) {
+            c.pausedByPrincipal = value;
+            emit CapsulePaused(capsuleId, c.principal, false, value);
+        } else if (action == ACTION_SURRENDER) {
+            c.surrendered = true;
+            emit CapsuleSurrendered(capsuleId, c.principal);
+        } else {
+            revert UnknownAction();
+        }
+    }
 
     // --- escalation -------------------------------------------------------
     //
