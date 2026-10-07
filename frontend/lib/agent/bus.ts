@@ -37,10 +37,24 @@ export function publish(id: string, e: Omit<AgentEvent, "seq" | "at" | "capsuleI
   return full;
 }
 
+/**
+ * Presence is broadcast but never stored: it is "who is watching now", not
+ * history, and replaying it to a late joiner would report people who left.
+ * It is what lets the issuer and the recipient see that the other is there.
+ */
+function announce(c: Channel, id: string) {
+  const e = { kind: "presence", watching: c.subs.size, capsuleId: id } as unknown as AgentEvent;
+  for (const s of c.subs) s(e);
+}
+
 export function subscribe(id: string, fn: Sub): () => void {
   const c = channel(id);
   c.subs.add(fn);
-  return () => c.subs.delete(fn);
+  announce(c, id);
+  return () => {
+    c.subs.delete(fn);
+    announce(c, id);
+  };
 }
 
 /** The last complete-or-current run, so a late joiner sees what just happened. */

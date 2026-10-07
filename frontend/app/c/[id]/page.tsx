@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
+import { AgentConsole } from "../../components/AgentConsole";
 import { Proof } from "../../components/Proof";
 import { ChecksList } from "../../components/ChecksList";
 import { decodeSentence, loadPolicy } from "../../../lib/policy/store";
@@ -144,6 +145,20 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
         </section>
 
         <div className="mx-auto max-w-5xl space-y-10 px-6 py-10">
+          {/* --- the agent, live --------------------------------------------
+           * The same console for the issuer and the recipient: one agent, one
+           * stream, one account of what it did.
+           */}
+          {!unclaimed && !ended && (
+            <AgentConsole
+              capsuleId={id}
+              issuer={capsule.issuer}
+              principal={capsule.principal}
+              perAction={b.perAction.toString()}
+              isFork={!chain.isMainnet}
+            />
+          )}
+
           {/* --- where it has got to ------------------------------------ */}
           <section>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
