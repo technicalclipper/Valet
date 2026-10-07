@@ -5,6 +5,7 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import type { Address, EIP1193Provider } from "viem";
 import { Header } from "../components/Header";
 import { Verdicts } from "../components/Verdicts";
+import { Identity } from "../components/Identity";
 import { compile } from "../../lib/policy/compile";
 import { extractWithRules } from "../../lib/policy/extract";
 import { withHash } from "../../lib/policy/canonical";
@@ -21,7 +22,7 @@ const EXAMPLES = [
 ];
 
 export default function CreatePage() {
-  const { ready, authenticated, login, user } = usePrivy();
+  const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
   const wallet = wallets[0];
 
@@ -103,6 +104,16 @@ export default function CreatePage() {
         </section>
 
         <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
+          {authenticated && address && (
+            <Identity
+              email={user?.google?.email ?? user?.email?.address}
+              address={address}
+              usdc={balances?.usdc}
+              mon={balances?.mon}
+              onDisconnect={logout}
+            />
+          )}
+
           {/* --- the sentence ------------------------------------------- */}
           <section>
             <label htmlFor="sentence" className="eyebrow">
@@ -180,16 +191,6 @@ export default function CreatePage() {
             ) : (
               <div>
                 <h2 className="text-base font-semibold on-card">Mint</h2>
-                <p className="mt-1 font-mono text-[11px] on-card-faint">
-                  {user?.google?.email ?? user?.email?.address ?? "signed in"} · {address?.slice(0, 6)}…
-                  {address?.slice(-4)}
-                  {balances && (
-                    <>
-                      {" · "}
-                      {amount(balances.usdc)} · {amount(balances.mon, 18, "MON")}
-                    </>
-                  )}
-                </p>
 
                 {result?.ok && result.policy && (
                   <p className="mt-2 text-[13px] on-card-dim">
