@@ -5,7 +5,6 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import type { Address, EIP1193Provider } from "viem";
 import { Header } from "../components/Header";
 import { Verdicts } from "../components/Verdicts";
-import { Identity } from "../components/Identity";
 import { compile } from "../../lib/policy/compile";
 import { extractWithRules } from "../../lib/policy/extract";
 import { withHash } from "../../lib/policy/canonical";
@@ -22,7 +21,7 @@ const EXAMPLES = [
 ];
 
 export default function CreatePage() {
-  const { ready, authenticated, login, logout, user } = usePrivy();
+  const { ready, authenticated, login } = usePrivy();
   const { wallets } = useWallets();
   const wallet = wallets[0];
 
@@ -104,16 +103,6 @@ export default function CreatePage() {
         </section>
 
         <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
-          {authenticated && address && (
-            <Identity
-              email={user?.google?.email ?? user?.email?.address}
-              address={address}
-              usdc={balances?.usdc}
-              mon={balances?.mon}
-              onDisconnect={logout}
-            />
-          )}
-
           {/* --- the sentence ------------------------------------------- */}
           <section>
             <label htmlFor="sentence" className="eyebrow">

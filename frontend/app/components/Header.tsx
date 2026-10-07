@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AccountChip } from "./AccountChip";
 import { ChainBadge } from "./ChainBadge";
 
 export function Header() {
@@ -12,7 +13,10 @@ export function Header() {
             bounded authority for agents
           </span>
         </Link>
-        <ChainBadge />
+        <div className="flex items-center gap-2.5">
+          <ChainBadge />
+          <AccountChip />
+        </div>
       </div>
     </header>
   );
