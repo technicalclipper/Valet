@@ -22,7 +22,7 @@ export interface AgentEvent {
   seq: number;
   at: number;
   capsuleId: string;
-  kind: "run-start" | "step" | "run-end";
+  kind: "run-start" | "step" | "run-end" | "ask";
   step?: StepId;
   status?: "active" | "done" | "refused" | "error";
   title: string;
@@ -31,5 +31,5 @@ export interface AgentEvent {
   /** the assert that refused, when one did */
   refusedBy?: string;
   txHash?: string;
-  outcome?: "executed" | "refused" | "error";
+  outcome?: "executed" | "refused" | "error" | "requested";
 }

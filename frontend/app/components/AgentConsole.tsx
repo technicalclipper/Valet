@@ -63,7 +63,7 @@ export function AgentConsole({
   const [refusedAt, setRefusedAt] = useState<number | null>(null);
   const [nums, setNums] = useState<Record<string, string>>({});
   const [log, setLog] = useState<Line[]>([]);
-  const [outcome, setOutcome] = useState<"executed" | "refused" | "error" | null>(null);
+  const [outcome, setOutcome] = useState<"executed" | "refused" | "error" | "requested" | null>(null);
   const [watching, setWatching] = useState(1);
   const [busy, setBusy] = useState(false);
   const [replaying, setReplaying] = useState(false);

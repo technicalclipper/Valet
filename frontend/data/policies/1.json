@@ -64,8 +64,8 @@
     "totalCap": "150000000",
     "windows": 30,
     "windowLength": 86400,
-    "notBefore": 1791392187,
-    "expiresAt": 1793984187,
+    "notBefore": 1791830822,
+    "expiresAt": 1794422822,
     "maxSlippageBps": 100
   },
   "assetIn": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",

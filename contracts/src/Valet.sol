@@ -6,6 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Assert, BeneficiaryMode, Bounds, Capsule, Escalation, MintParams, SpendRequest, Vault} from "./ValetTypes.sol";
 
 /// @title Valet — bounded, revocable spending authority for agents
@@ -487,6 +488,28 @@ contract Valet is ReentrancyGuard, EIP712 {
 
 
 
+
+    /// @dev Did `signer` sign `digest`? A plain ECDSA signature from the
+    ///      address's own key, or an ERC-1271 approval from its code.
+    ///
+    ///      Not OpenZeppelin's isValidSignatureNow, which decides by code size:
+    ///      an address with any code is only ever asked via ERC-1271. Since
+    ///      EIP-7702 an ordinary key-owned address can carry code — MetaMask
+    ///      smart accounts and Privy's 7702 wallets do — and found on mainnet,
+    ///      so do anvil's published accounts, delegated by sweeper bots. A
+    ///      correctly signed claim from such an address was rejected because
+    ///      its delegate does not implement ERC-1271 strictly.
+    ///
+    ///      Accepting the key's own signature is not weaker. Under 7702 the key
+    ///      stays the account's root authority and could re-delegate at will;
+    ///      and for a true contract wallet ECDSA cannot recover to its address,
+    ///      so it falls through to ERC-1271 exactly as before.
+    function _signedBy(address signer, bytes32 digest, bytes calldata signature) internal view returns (bool) {
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, signature);
+        if (err == ECDSA.RecoverError.NoError && recovered == signer) return true;
+        return SignatureChecker.isValidERC1271SignatureNow(signer, digest, signature);
+    }
+
     // --- the recipient acts by signature, never by transaction -------------
     //
     // Every function here may be submitted by anyone. Authority is in the
@@ -525,8 +548,8 @@ contract Valet is ReentrancyGuard, EIP712 {
 
         uint256 nonce = principalNonce[capsuleId];
         bytes32 digest = claimDigest(capsuleId, holder, nonce, deadline);
-        bool byPrincipal = SignatureChecker.isValidSignatureNow(c.principal, digest, signature);
-        bool byIssuer = byPrincipal || SignatureChecker.isValidSignatureNow(c.issuer, digest, signature);
+        bool byPrincipal = _signedBy(c.principal, digest, signature);
+        bool byIssuer = byPrincipal || _signedBy(c.issuer, digest, signature);
         if (!byIssuer) revert BadSignature();
 
         principalNonce[capsuleId] = nonce + 1;
@@ -548,7 +571,7 @@ contract Valet is ReentrancyGuard, EIP712 {
 
         uint256 nonce = principalNonce[capsuleId];
         bytes32 digest = principalActionDigest(capsuleId, action, value, nonce, deadline);
-        if (!SignatureChecker.isValidSignatureNow(c.principal, digest, signature)) revert BadSignature();
+        if (!_signedBy(c.principal, digest, signature)) revert BadSignature();
 
         principalNonce[capsuleId] = nonce + 1;
 
@@ -613,7 +636,7 @@ contract Valet is ReentrancyGuard, EIP712 {
         if (block.timestamp >= deadline) revert PastDeadline();
 
         bytes32 digest = escalationDigest(capsuleId, amount, nonce, deadline);
-        if (!SignatureChecker.isValidSignatureNow(c.issuer, digest, signature)) revert BadSignature();
+        if (!_signedBy(c.issuer, digest, signature)) revert BadSignature();
 
         e.approvedAmount = amount;
         e.deadline = deadline;

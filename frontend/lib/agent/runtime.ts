@@ -8,7 +8,7 @@ import {
   parseEventLogs,
   type Address,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { serverAccount } from "../server/keys";
 import { valetAbi } from "../chain/abi";
 import { monad, publicClient } from "../chain/client";
 import { ASSERTS, preflight, readBeneficiary, readCapsule, readHeadroom } from "../chain/reads";
@@ -28,36 +28,8 @@ const kuruAbi = parseAbi([
  * which is why handing it a key is a bounded act rather than a leap of faith.
  */
 function agentAccount() {
-  const pk = process.env.AGENT_PRIVATE_KEY;
-  if (!pk) throw new Error("AGENT_PRIVATE_KEY is not set. See .env.example.");
-  const account = privateKeyToAccount(pk as `0x${string}`);
-  if (cfg.isMainnet && ANVIL_PUBLIC_KEYS.has(account.address.toLowerCase())) {
-    throw new Error(
-      `Refusing to act on mainnet with ${account.address}: it is one of anvil's published test ` +
-        "keys, which sweeper bots drain the moment they are funded. Use a fresh key.",
-    );
-  }
-  return account;
+  return serverAccount("AGENT_PRIVATE_KEY");
 }
-
-/**
- * Anvil's default accounts. Their private keys are printed by every anvil and
- * Hardhat node on earth, and on Monad mainnet they show hundreds of
- * transactions from strangers and empty balances — bots sweep them within
- * seconds of being funded. Fine on a fork; a guaranteed loss anywhere real.
- */
-const ANVIL_PUBLIC_KEYS = new Set([
-  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
-  "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
-  "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
-  "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
-  "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65",
-  "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
-  "0x976ea74026e726554db657fa54763abd0c3a0aa9",
-  "0x14dc79964da2c08b23698b3d3cc7ca32193d9955",
-  "0x23618e81e3f5cdf7f54c3d65f7fbc0abf5b21e8f",
-  "0xa0ee7a142d267c1f36714e4a8f75612f20a79720",
-]);
 
 /**
  * What 5 USDC buys right now, from the top of Kuru's book.
@@ -97,7 +69,10 @@ function revertName(err: unknown): string | undefined {
  * chain's: preflight is an eth_call against the contract, and the run then
  * simulates execute() to show the revert the chain itself would return.
  */
-export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {}) {
+export async function runOnce(
+  capsuleId: string,
+  opts: { amountIn?: bigint; elevatedNonce?: bigint } = {},
+) {
   if (!tryLock(capsuleId)) return { started: false, reason: "a run is already in progress" };
 
   const runId = `${capsuleId}-${Date.now().toString(36)}`;
@@ -106,7 +81,12 @@ export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {
 
   try {
     const agent = agentAccount();
-    say({ kind: "run-start", title: "The agent wakes", data: { agent: agent.address } });
+    const elevated = opts.elevatedNonce !== undefined;
+    say({
+      kind: "run-start",
+      title: elevated ? "The issuer said yes — the agent spends under the approval" : "The agent wakes",
+      data: { agent: agent.address, ...(elevated ? { nonce: opts.elevatedNonce!.toString() } : {}) },
+    });
 
     // --- wake
     say({ kind: "step", step: "wake", status: "active", title: "Checking the clock" });
@@ -163,8 +143,13 @@ export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {
       capsuleId: id, vaultId: capsule.vaultId, amountIn,
       quotedOut: q.out, minOut, target: addresses.kuruMarket, recipient,
     };
-    say({ kind: "step", step: "preflight", status: "active", title: "Asking the contract whether this is allowed" });
-    const verdict = await preflight(req, agent.address);
+    say({
+      kind: "step", step: "preflight", status: "active",
+      title: elevated
+        ? "Asking the contract — with the soft caps lifted, and only those"
+        : "Asking the contract whether this is allowed",
+    });
+    const verdict = await preflight(req, agent.address, elevated);
 
     const venueData = encodeFunctionData({
       abi: kuruAbi, functionName: "placeAndExecuteMarketBuy",
@@ -175,17 +160,24 @@ export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {
       // the chain's own words: simulate the real call and decode its revert
       let chainSays = verdict as string;
       try {
-        await publicClient.simulateContract({
-          address: valetAddress(), abi: valetAbi, functionName: "execute",
-          args: [req, venueData], account: agent.address,
-        });
+        await (elevated
+          ? publicClient.simulateContract({
+              address: valetAddress(), abi: valetAbi, functionName: "executeElevated",
+              args: [req, venueData, opts.elevatedNonce!], account: agent.address,
+            })
+          : publicClient.simulateContract({
+              address: valetAddress(), abi: valetAbi, functionName: "execute",
+              args: [req, venueData], account: agent.address,
+            }));
       } catch (err) {
         chainSays = revertName(err) ?? verdict;
       }
       say({
         kind: "step", step: "preflight", status: "refused", refusedBy: verdict,
         title: `Refused by the contract: ${verdict}`,
-        detail: `execute() would revert with Refused(${verdict}). No transaction was sent, and nothing moved.`,
+        detail: elevated && verdict === "OVER_HARD_CAP"
+          ? "The issuer approved this, and the chain refuses it anyway: nothing lifts the hard cap. No transaction was sent, and nothing moved."
+          : `execute() would revert with Refused(${verdict}). No transaction was sent, and nothing moved.`,
         data: { chainSays },
       });
       say({ kind: "run-end", outcome: "refused", refusedBy: verdict, title: "Nothing moved" });
@@ -198,9 +190,14 @@ export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {
     say({ kind: "step", step: "execute", status: "active", title: "Sending the trade" });
     const wallet = createWalletClient({ account: agent, chain: monad, transport: http(cfg.rpcUrl) });
     const before = await publicClient.getBalance({ address: recipient });
-    const hash = await wallet.writeContract({
-      address: valetAddress(), abi: valetAbi, functionName: "execute", args: [req, venueData],
-    });
+    const hash = elevated
+      ? await wallet.writeContract({
+          address: valetAddress(), abi: valetAbi, functionName: "executeElevated",
+          args: [req, venueData, opts.elevatedNonce!],
+        })
+      : await wallet.writeContract({
+          address: valetAddress(), abi: valetAbi, functionName: "execute", args: [req, venueData],
+        });
     say({ kind: "step", step: "execute", status: "done", title: "Submitted", txHash: hash, detail: hash });
 
     // --- settle
@@ -225,6 +222,47 @@ export async function runOnce(capsuleId: string, opts: { amountIn?: bigint } = {
     const msg = err instanceof BaseError ? err.shortMessage : (err as Error).message;
     say({ kind: "run-end", outcome: "error", status: "error", title: "The run stopped", detail: msg });
     return { started: true, runId, outcome: "error" as const, error: msg };
+  } finally {
+    unlock(capsuleId);
+  }
+}
+
+/**
+ * The agent asks to exceed its per-action cap.
+ *
+ * It can ask; it can never approve. requestEscalation is the holder's, and the
+ * agent pays for it, but the request moves no money and lifts nothing — it only
+ * puts a question in front of the issuer, who answers by signing.
+ *
+ * Asking for more than the hard cap is allowed on purpose: the issuer should see
+ * that the agent asked for something absurd, and the refusal belongs where the
+ * hard cap is, at execution.
+ */
+export async function requestMore(capsuleId: string, amount: bigint, reason: string) {
+  if (!tryLock(capsuleId)) return { ok: false, reason: "a run is already in progress" };
+  const runId = `${capsuleId}-ask-${Date.now().toString(36)}`;
+  try {
+    const agent = agentAccount();
+    const id = BigInt(capsuleId);
+    const wallet = createWalletClient({ account: agent, chain: monad, transport: http(cfg.rpcUrl) });
+    const hash = await wallet.writeContract({
+      address: valetAddress(), abi: valetAbi, functionName: "requestEscalation", args: [id, amount, reason],
+    });
+    const rcpt = await publicClient.waitForTransactionReceipt({ hash });
+    const ev = parseEventLogs({ abi: valetAbi, eventName: "EscalationRequested", logs: rcpt.logs })[0] as unknown as
+      | { args: { nonce: bigint } }
+      | undefined;
+    const nonce = ev?.args.nonce ?? 0n;
+    publish(capsuleId, {
+      runId, kind: "ask", outcome: "requested", txHash: hash,
+      title: `The agent asks to spend ${amount === 0n ? "more" : amount.toString()} — waiting for the issuer`,
+      detail: reason,
+      data: { amount: amount.toString(), nonce: nonce.toString(), reason },
+    });
+    return { ok: true, nonce: nonce.toString(), hash };
+  } catch (err) {
+    const msg = err instanceof BaseError ? err.shortMessage : (err as Error).message;
+    return { ok: false, reason: msg };
   } finally {
     unlock(capsuleId);
   }
