@@ -12,7 +12,7 @@ export function ChainBadge() {
   const live = chain.isMainnet;
   return (
     <span
-      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em]"
+      className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] sm:px-3 sm:text-[11px] sm:tracking-[0.14em]"
       style={{
         borderColor: live ? "rgb(178 255 166 / 0.35)" : "rgb(253 121 174 / 0.35)",
         color: live ? "var(--enforced)" : "var(--refused)",
@@ -24,7 +24,7 @@ export function ChainBadge() {
         style={{ background: live ? "var(--enforced)" : "var(--refused)" }}
       />
       {chain.label}
-      {!live && <span className="text-text-faint normal-case tracking-normal">· time accelerated</span>}
+      {!live && <span className="hidden text-text-faint normal-case tracking-normal sm:inline">· time accelerated</span>}
     </span>
   );
 }

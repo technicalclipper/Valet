@@ -66,7 +66,7 @@ export function Slabs() {
         <div
           key={i}
           data-rate={s.rate}
-          className="absolute"
+          className={`absolute ${s.edge > 0 ? "hidden sm:block" : ""}`}
           style={{
             [s.side === "l" ? "left" : "right"]: `${s.edge}%`,
             top: `${s.top}%`,

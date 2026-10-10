@@ -10,4 +10,13 @@ export const monad = defineChain({
   blockExplorers: { default: { name: "Monad Explorer", url: cfg.explorer } },
 });
 
-export const publicClient = createPublicClient({ chain: monad, transport: http(cfg.rpcUrl) });
+/**
+ * Timeout and retries set explicitly. viem's defaults are 10 seconds and three
+ * retries per call, and a page makes several calls — with the RPC down, a
+ * capsule page hung for over forty seconds before the error page could appear.
+ * Failing in seconds and saying why beats a spinner nobody waits out.
+ */
+export const publicClient = createPublicClient({
+  chain: monad,
+  transport: http(cfg.rpcUrl, { timeout: 6_000, retryCount: 1 }),
+});

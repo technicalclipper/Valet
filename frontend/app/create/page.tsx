@@ -188,7 +188,7 @@ export default function CreatePage() {
             </label>
             <textarea
               id="sentence"
-              rows={2}
+              rows={3}
               value={sentence}
               onChange={(e) => setSentence(e.target.value)}
               spellCheck={false}

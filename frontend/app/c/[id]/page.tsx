@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
 import { AgentConsole } from "../../components/AgentConsole";
@@ -19,9 +20,16 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   // Next 16: params is async-only.
   // Next 16: params and searchParams are both async-only.
   const [{ id }, query] = await Promise.all([props.params, props.searchParams]);
+  if (!/^\d{1,20}$/.test(id)) notFound();
   const capsuleId = BigInt(id);
 
-  const capsule = await readCapsule(capsuleId);
+  // A capsule that does not exist reverts NoSuchCapsule: that is a 404, not a
+  // crash. Any other failure is the chain being unreachable, which error.tsx
+  // catches and explains.
+  const capsule = await readCapsule(capsuleId).catch((err: unknown) => {
+    if (/NoSuchCapsule/.test(String((err as Error)?.message ?? err))) notFound();
+    throw err;
+  });
 
   // A link may carry the sentence it was written from. Recompiling it against
   // the capsule's own notBefore reproduces the document without anyone having

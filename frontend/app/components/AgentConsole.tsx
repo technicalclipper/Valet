@@ -241,6 +241,9 @@ export function AgentConsole({
   const reached = order.reduce((n, id, i) => (stages[id] !== "pending" ? i : n), -1);
   const progress = reached < 0 ? 0 : (reached / (order.length - 1)) * 100;
   const refused = outcome === "refused" || flow === "blocked";
+  const current =
+    STEPS.find((s) => stages[s.id] === "active" || stages[s.id] === "refused") ??
+    [...STEPS].reverse().find((s) => stages[s.id] === "done");
 
   const WALL = 25.5; // in the gap between the vault box and Kuru's
   const POS: Record<Flow, number> = {
@@ -319,7 +322,7 @@ export function AgentConsole({
                     ) : null}
                   </span>
                   <span
-                    className="mt-2 w-20 text-center font-mono text-[9px] uppercase leading-tight tracking-[0.08em] sm:text-[10px]"
+                    className="mt-2 hidden w-20 text-center font-mono text-[10px] uppercase leading-tight tracking-[0.08em] sm:block"
                     style={{ color: st === "pending" ? "var(--text-faint)" : st === "refused" ? "var(--refused)" : st === "active" ? "var(--peri)" : "var(--text-dim)" }}
                   >
                     {s.label}
@@ -328,10 +331,15 @@ export function AgentConsole({
               );
             })}
           </ol>
+          {/* one label, not seven: at phone width the seven collide */}
+          <p className="mt-3 text-center font-mono text-[11px] uppercase tracking-[0.12em] sm:hidden" style={{ color: refused ? "var(--refused)" : "var(--peri)" }}>
+            {current ? current.label : "asleep"}
+            {refused ? " · refused" : ""}
+          </p>
         </div>
 
         {/* the money */}
-        <div className="relative mt-9 h-[92px]">
+        <div className="relative mt-6 h-[72px] sm:mt-9 sm:h-[92px]">
           <div className="absolute left-[9%] right-[9%] top-[30px] border-t-2 border-dashed border-white/12" />
           {(
             [
@@ -350,15 +358,15 @@ export function AgentConsole({
             return (
               <div key={name} className="absolute top-0 flex w-[22%] -translate-x-1/2 flex-col items-center" style={{ left: `${x}%` }}>
                 <div
-                  className={`grid h-[60px] w-full max-w-[120px] place-items-center rounded-lg border-2 bg-[#16161c] px-2 transition-all duration-300 ${name === "recipient" && flow === "landed" ? "land" : ""}`}
+                  className={`grid h-[48px] w-full max-w-[120px] place-items-center rounded-lg border-2 bg-[#16161c] px-1 transition-all duration-300 sm:h-[60px] sm:px-2 ${name === "recipient" && flow === "landed" ? "land" : ""}`}
                   style={{ borderColor: hot ? tone : "rgb(255 255 255 / 0.12)", boxShadow: hot ? `0 0 18px ${tone === "var(--enforced)" ? "rgb(178 255 166 / 0.35)" : tone === "var(--refused)" ? "rgb(253 121 174 / 0.4)" : "rgb(194 181 255 / 0.3)"}` : "none" }}
                 >
                   <div className="text-center">
-                    <div className="text-[13px] font-semibold text-text">{name}</div>
-                    <div className="mt-0.5 truncate font-mono text-[9px] text-text-faint sm:text-[10px]">{value}</div>
+                    <div className="text-[11px] font-semibold text-text sm:text-[13px]">{name}</div>
+                    <div className="mt-0.5 hidden truncate font-mono text-[10px] text-text-faint sm:block">{value}</div>
                   </div>
                 </div>
-                <span className="mt-1.5 font-mono text-[9px] text-text-faint">{sub}</span>
+                <span className="mt-1.5 hidden font-mono text-[9px] text-text-faint sm:block">{sub}</span>
               </div>
             );
           })}
@@ -376,7 +384,7 @@ export function AgentConsole({
            */}
           {flow !== "idle" && (
             <div
-              className="absolute top-[18px] z-10"
+              className="absolute top-[18px] z-10 hidden sm:block"
               style={{
                 left: `${flow === "blocked" ? WALL : POS[flow]}%`,
                 transform: flow === "blocked" ? "translateX(calc(-100% - 7px))" : "translateX(-50%)",
@@ -400,11 +408,17 @@ export function AgentConsole({
             </div>
           )}
           {flow === "blocked" && (
-            <p className="absolute top-[66px] -translate-x-1/2 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.14em]" style={{ left: `${WALL}%`, color: "var(--refused)" }}>
+            <p className="absolute top-[66px] hidden -translate-x-1/2 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.14em] sm:block" style={{ left: `${WALL}%`, color: "var(--refused)" }}>
               nothing moved
             </p>
           )}
         </div>
+
+        {flow === "blocked" && (
+          <p className="mt-1 text-center font-mono text-[11px] uppercase tracking-[0.14em] sm:hidden" style={{ color: "var(--refused)" }}>
+            nothing moved
+          </p>
+        )}
 
         {/* readouts + the nineteen */}
         <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
@@ -465,7 +479,7 @@ export function AgentConsole({
               >
                 {l.text}
               </span>
-              {l.detail && <div className="pl-[8.5rem] text-text-faint">{/^0x[0-9a-f]{40,}$/i.test(l.detail) ? `${l.detail.slice(0, 18)}…${l.detail.slice(-6)}` : l.detail}</div>}
+              {l.detail && <div className="pl-4 text-text-faint sm:pl-[8.5rem]">{/^0x[0-9a-f]{40,}$/i.test(l.detail) ? `${l.detail.slice(0, 18)}…${l.detail.slice(-6)}` : l.detail}</div>}
             </div>
           ))}
           <div ref={logEnd} />

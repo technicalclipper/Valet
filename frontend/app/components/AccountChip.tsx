@@ -60,7 +60,7 @@ export function AccountChip() {
     return (
       <button
         onClick={login}
-        className="rounded-full border border-white/15 px-3 py-1 font-mono text-[11px] text-text-dim transition hover:border-white/30 hover:text-text"
+        className="whitespace-nowrap rounded-full border border-white/15 px-3 py-1 font-mono text-[11px] text-text-dim transition hover:border-white/30 hover:text-text"
       >
         sign in
       </button>
@@ -73,7 +73,7 @@ export function AccountChip() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 transition hover:border-white/30"
+        className="flex items-center gap-2 whitespace-nowrap rounded-full border border-white/15 px-3 py-1 transition hover:border-white/30"
       >
         <span className="breathe h-1.5 w-1.5 rounded-full" style={{ background: "var(--enforced)" }} />
         <span className="font-mono text-[11px] text-text-dim">
