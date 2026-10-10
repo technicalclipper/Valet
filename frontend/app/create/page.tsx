@@ -8,7 +8,17 @@ import { Verdicts } from "../components/Verdicts";
 import { compile } from "../../lib/policy/compile";
 import { extractWithRules } from "../../lib/policy/extract";
 import { withHash } from "../../lib/policy/canonical";
-import { devFund, mintCapsule, nativeBalance, usdcBalance, type MintProgress } from "../../lib/chain/writes";
+import {
+  MINT_STEPS,
+  MintInterrupted,
+  chainNow,
+  devFund,
+  mintCapsule,
+  nativeBalance,
+  usdcBalance,
+  type MintProgress,
+  type MintStep,
+} from "../../lib/chain/writes";
 import { amount } from "../../lib/format";
 import { chain } from "../../lib/config/chain";
 import type { CompileResult } from "../../lib/policy/types";
@@ -31,6 +41,17 @@ export default function CreatePage() {
   const [progress, setProgress] = useState<MintProgress | null>(null);
   const [minted, setMinted] = useState<{ capsuleId: bigint; link: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [declined, setDeclined] = useState<MintStep | null>(null);
+  const [resumeVault, setResumeVault] = useState<bigint | undefined>(undefined);
+  const [done, setDone] = useState<Set<MintStep>>(new Set());
+  const [now, setNow] = useState<number | null>(null);
+
+  // The chain's clock, not the browser's. On a fork that has been moved forward
+  // a few days, a capsule starting "now" by the wall clock would begin in
+  // window four with the first three already forfeited.
+  useEffect(() => {
+    void chainNow().then(setNow).catch(() => setNow(Math.floor(Date.now() / 1000)));
+  }, []);
 
   // Compile as they type. The split is the product, so it should appear while
   // the sentence is still being written rather than after a submit.
@@ -38,13 +59,13 @@ export default function CreatePage() {
     let live = true;
     (async () => {
       const extracted = await extractWithRules(sentence);
-      const r = compile(sentence, extracted, Math.floor(Date.now() / 1000));
+      const r = compile(sentence, extracted, now ?? Math.floor(Date.now() / 1000));
       if (live) setResult(r);
     })();
     return () => {
       live = false;
     };
-  }, [sentence]);
+  }, [sentence, now]);
 
   const address = wallet?.address as Address | undefined;
 
@@ -64,10 +85,26 @@ export default function CreatePage() {
   async function onMint() {
     if (!wallet || !result?.ok || !result.policy) return;
     setError(null);
+    setDeclined(null);
     try {
       const provider = (await wallet.getEthereumProvider()) as EIP1193Provider;
       const policy = withHash(result.policy);
-      const { capsuleId } = await mintCapsule(provider, wallet.address as Address, policy, setProgress);
+      const { capsuleId } = await mintCapsule(
+        provider,
+        wallet.address as Address,
+        policy,
+        (p) => {
+          setProgress(p);
+          if (p.step !== "done") {
+            // everything before the current step has finished
+            const idx = MINT_STEPS.findIndex((m) => m.id === p.step);
+            setDone(new Set(MINT_STEPS.slice(0, idx).map((m) => m.id)));
+          }
+        },
+        { vaultId: resumeVault },
+      );
+      setDone(new Set(MINT_STEPS.map((m) => m.id)));
+      setResumeVault(undefined);
       const s = btoa(unescape(encodeURIComponent(sentence)))
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
@@ -75,7 +112,18 @@ export default function CreatePage() {
       setMinted({ capsuleId, link: `${location.origin}/c/${capsuleId}?s=${s}` });
       void refresh();
     } catch (e) {
-      setError((e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message);
+      setProgress(null);
+      if (e instanceof MintInterrupted) {
+        // keep the vault if one was opened, so the retry picks it up
+        if (e.vaultId !== undefined) setResumeVault(e.vaultId);
+        if (e.declined) {
+          setDeclined(e.step);
+          return;
+        }
+        setError(e.message);
+        return;
+      }
+      setError((e as Error).message);
     }
   }
 
@@ -223,14 +271,60 @@ export default function CreatePage() {
                   </button>
                 )}
 
+                {/* what each popup will ask, before it asks */}
+                <ol className="mt-3 space-y-1.5">
+                  {MINT_STEPS.map((m, i) => {
+                    const isNow = progress?.step === m.id;
+                    const isDone = done.has(m.id);
+                    const isDeclined = declined === m.id;
+                    return (
+                      <li key={m.id} className="flex items-baseline gap-2.5 text-[13px]">
+                        <span
+                          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 font-mono text-[10px] font-bold ${isNow ? "stage-active" : isDone ? "stage-pop" : ""}`}
+                          style={{
+                            borderColor: isDeclined ? "#d8366f" : isDone ? "#2f9e5e" : isNow ? "#7e65d4" : "rgb(22 22 26 / 0.2)",
+                            background: isDone ? "#2f9e5e" : isDeclined ? "#d8366f" : "transparent",
+                            color: isDone || isDeclined ? "#fdfcff" : "#7e65d4",
+                          }}
+                        >
+                          {isDone ? "✓" : isDeclined ? "✗" : i + 1}
+                        </span>
+                        <span className={isDone ? "on-card-faint line-through decoration-1" : "on-card"}>{m.label}</span>
+                        <span className="on-card-faint text-[12px]">— {m.why}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <p className="mt-2 text-[12px] on-card-faint">
+                  Each step opens a confirmation from your wallet. Nothing is spent until you approve it.
+                </p>
+
                 <button
                   onClick={onMint}
-                  disabled={!result?.ok || needsFunds || progress?.step === "mint"}
+                  disabled={!result?.ok || needsFunds || (progress !== null && progress.step !== "done")}
                   className="mt-3 rounded-full px-4 py-2 text-sm font-medium text-white disabled:opacity-35"
                   style={{ background: "#16161a" }}
                 >
-                  {progress && progress.step !== "done" ? progress.note : "Mint the capsule"}
+                  {progress && progress.step !== "done"
+                    ? progress.note
+                    : resumeVault !== undefined || declined
+                      ? "Continue where it stopped"
+                      : "Mint the capsule"}
                 </button>
+
+                {declined && (
+                  <div className="mt-3 rounded-lg border-2 p-3" style={{ borderColor: "#f0b8cd", background: "#fff5f8" }}>
+                    <p className="text-[13px] font-medium" style={{ color: "#b5245a" }}>
+                      You declined: {MINT_STEPS.find((m) => m.id === declined)?.label.toLowerCase()}.
+                    </p>
+                    <p className="mt-1 text-[12px] on-card-dim">
+                      {declined === "approve"
+                        ? "Nothing happened on chain — no vault was opened and no USDC moved."
+                        : `Vault #${resumeVault?.toString() ?? "?"} is open but nothing has been spent from it.`}{" "}
+                      Continuing picks up at this step; it won&apos;t repeat anything already done.
+                    </p>
+                  </div>
+                )}
 
                 {needsFunds && (
                   <p className="mt-2 text-[12px]" style={{ color: "#d8366f" }}>
