@@ -65,7 +65,7 @@ export function percent(bps: number): string {
 }
 
 /** 0 -> "back to the vault" */
-export const BENEFICIARY = ["back into the vault", "to you", "to a fixed address"] as const;
+export const BENEFICIARY = ["back into the vault", "to the recipient", "to a fixed address"] as const;
 
 /**
  * Readable names for the nineteen asserts.

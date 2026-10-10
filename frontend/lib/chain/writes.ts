@@ -81,7 +81,7 @@ export async function mintCapsule(
   account: Address,
   policy: Policy,
   onProgress: (p: MintProgress) => void,
-  resume: { vaultId?: bigint } = {},
+  resume: { vaultId?: bigint; recipient?: Address } = {},
 ): Promise<{ vaultId: bigint; capsuleId: bigint }> {
   const wallet = walletFrom(provider, account);
   const valet = valetAddress();
@@ -137,7 +137,8 @@ export async function mintCapsule(
       args: [
         {
           vaultId,
-          principal: policy.beneficiaryMode === 2 ? (policy.fixedBeneficiary as Address) : account,
+          // whoever the capsule is for; yourself when nobody else is named
+          principal: resume.recipient ?? (policy.beneficiaryMode === 2 ? (policy.fixedBeneficiary as Address) : account),
           mode: policy.beneficiaryMode,
           fixedBeneficiary: policy.fixedBeneficiary as Address,
           assetOut: policy.assetOut as Address,

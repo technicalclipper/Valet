@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
 import { AgentConsole } from "../../components/AgentConsole";
+import { CapsuleActions } from "../../components/CapsuleActions";
 import { Proof } from "../../components/Proof";
 import { ChecksList } from "../../components/ChecksList";
 import { decodeSentence, loadPolicy } from "../../../lib/policy/store";
@@ -34,7 +35,9 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   const verification = policy ? verifyCapsule(policy, capsule) : null;
   const b = capsule.bounds;
 
-  let refusedBy: AssertName = "NONE";
+  // Unclaimed, the chain refuses at check two, NOT_CLAIMED — and the proof
+  // section must say that rather than defaulting to "all nineteen pass".
+  let refusedBy: AssertName = capsule.holder === ZERO ? "NOT_CLAIMED" : "NONE";
   if (capsule.holder !== ZERO) {
     const quoted = 10n ** 18n;
     refusedBy = await preflight(
@@ -52,7 +55,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   }
 
   const history = await readHistory(capsuleId).catch(() => []);
-  const ended = capsule.revoked || capsule.surrendered;
+  const ended = capsule.revoked || capsule.surrendered || vault.revoked;
   const paused = capsule.pausedByIssuer || capsule.pausedByPrincipal;
   const unclaimed = capsule.holder === ZERO;
 
@@ -63,7 +66,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
       : paused
         ? { word: "Paused", tone: "var(--advisory)", line: "On hold. No spend will go through until it is resumed." }
         : unclaimed
-          ? { word: "Granted", tone: "var(--enforced)", line: "Waiting for you to choose who acts on it." }
+          ? { word: "Granted", tone: "var(--enforced)", line: "Waiting for the recipient to choose who acts on it." }
           : { word: "Live", tone: "var(--enforced)", line: "An agent is acting on this inside the limits below." };
 
   const day = Number(head.windowIndex) + 1;
@@ -84,14 +87,14 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   }`;
   const lead =
     capsule.mode === 1
-      ? { opener: "You are being given", body: `${amount(b.perAction)} of MON, ${span}.` }
+      ? { opener: `${shortAddress(capsule.principal)} is given`, body: `${amount(b.perAction)} of MON, ${span}.` }
       : capsule.mode === 2
         ? {
             opener: "An agent may spend",
             body: `${amount(b.perAction)} ${span}, with the MON paid to ${shortAddress(capsule.fixedBeneficiary)}.`,
           }
         : {
-            opener: "You are trusted to run an agent that spends",
+            opener: "An agent is trusted to spend",
             body: `${amount(b.perAction)} ${span}. The proceeds stay in the issuer's vault — none of it becomes yours.`,
           };
 
@@ -149,6 +152,19 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
            * The same console for the issuer and the recipient: one agent, one
            * stream, one account of what it did.
            */}
+          <CapsuleActions
+            capsuleId={id}
+            valet={addresses.valet as `0x${string}`}
+            issuer={capsule.issuer}
+            principal={capsule.principal}
+            holder={capsule.holder}
+            pausedByIssuer={capsule.pausedByIssuer}
+            pausedByPrincipal={capsule.pausedByPrincipal}
+            ended={ended}
+            vaultId={capsule.vaultId.toString()}
+            hardCap={b.hardCap.toString()}
+          />
+
           {!unclaimed && !ended && (
             <AgentConsole
               capsuleId={id}
@@ -169,7 +185,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
             </div>
             <div className="mt-4 grid gap-5 rounded-lg border border-white/[0.07] bg-ink-2/50 p-5 sm:grid-cols-2">
               <CapMeter label="today" spent={b.perWindow - head.windowLeft} soft={b.perWindow} hard={b.hardCap} />
-              <CapMeter label="all thirty days" spent={capsule.spentTotal} soft={b.totalCap} hard={b.totalCap} />
+              <CapMeter label={`all ${b.windows} ${Number(b.windowLength) === 86400 ? "days" : "windows"}`} spent={capsule.spentTotal} soft={b.totalCap} hard={b.totalCap} />
             </div>
             <p className="mt-2 text-[13px] text-text-faint">
               The vault holds {amount(vault.balance)}. An unused day is forfeited, not saved —
@@ -344,8 +360,8 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
 
           {!ended && (
             <p className="text-[13px] text-text-faint">
-              You can pause this or hand it back at any time, and it costs you nothing — your
-              signature is relayed, so you never need to hold a token to use it.
+              The recipient can pause this or hand it back at any time, and it costs them nothing — their
+              signature is relayed, so they never need to hold a token to use it.
             </p>
           )}
 

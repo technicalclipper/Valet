@@ -91,6 +91,13 @@ export function AgentConsole({
       return d(450);
     }
 
+    if (e.kind === "ask") {
+      say({ step: "ask", text: e.title, detail: e.detail, tone: "info" });
+      setOutcome("requested");
+      setBusy(false);
+      return d(400);
+    }
+
     if (e.kind === "run-end") {
       setOutcome(e.outcome ?? null);
       say({ step: "agent", text: e.title, detail: e.detail, tone: e.outcome === "executed" ? "good" : e.outcome === "refused" ? "bad" : "bad" });
@@ -204,6 +211,22 @@ export function AgentConsole({
     }
   }
 
+  /** The agent asks the issuer for more than its per-action cap allows. */
+  async function askFor(multiple: 1.5 | 10) {
+    setNote(null);
+    setBusy(true);
+    const amt = (BigInt(perAction) * BigInt(multiple * 10)) / 10n;
+    const reason = multiple === 10 ? "let me go big — ten times today's cap" : "the book is deep today; one larger buy";
+    const r = await fetch(`/api/agent/${capsuleId}/ask`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ amount: amt.toString(), reason }),
+    }).then((x) => x.json());
+    if (!r.ok) {
+      setNote(r.reason ?? "The agent could not ask.");
+      setBusy(false);
+    }
+  }
+
   async function nextDay() {
     setNote(null);
     const res = await fetch(`/api/agent/${capsuleId}/advance`, { method: "POST" });
@@ -236,6 +259,8 @@ export function AgentConsole({
         ? { word: "refused", color: "var(--refused)" }
         : outcome === "error"
           ? { word: "stopped", color: "var(--refused)" }
+          : outcome === "requested"
+            ? { word: "waiting for the issuer", color: "var(--peri)" }
           : { word: "idle", color: "var(--text-faint)" };
 
   return (
@@ -440,7 +465,7 @@ export function AgentConsole({
               >
                 {l.text}
               </span>
-              {l.detail && <div className="pl-[8.5rem] text-text-faint">{l.detail.length > 120 ? `${l.detail.slice(0, 66)}…` : l.detail}</div>}
+              {l.detail && <div className="pl-[8.5rem] text-text-faint">{/^0x[0-9a-f]{40,}$/i.test(l.detail) ? `${l.detail.slice(0, 18)}…${l.detail.slice(-6)}` : l.detail}</div>}
             </div>
           ))}
           <div ref={logEnd} />
@@ -464,6 +489,22 @@ export function AgentConsole({
           style={{ borderColor: "#d8366f", color: "#b5245a" }}
         >
           Ask for 4× — watch it refuse
+        </button>
+        <button
+          onClick={() => askFor(1.5)}
+          disabled={busy}
+          className="rounded-full border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+          style={{ borderColor: "#7e65d4", color: "#5b45a8" }}
+        >
+          Agent asks for 1.5×
+        </button>
+        <button
+          onClick={() => askFor(10)}
+          disabled={busy}
+          className="rounded-full border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+          style={{ borderColor: "#7e65d4", color: "#5b45a8" }}
+        >
+          Agent asks for 10×
         </button>
         {isFork && (
           <button

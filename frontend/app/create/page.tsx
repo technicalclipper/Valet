@@ -45,6 +45,8 @@ export default function CreatePage() {
   const [resumeVault, setResumeVault] = useState<bigint | undefined>(undefined);
   const [done, setDone] = useState<Set<MintStep>>(new Set());
   const [now, setNow] = useState<number | null>(null);
+  const [recipientInput, setRecipientInput] = useState("");
+  const [recipient, setRecipient] = useState<{ address: Address; email?: string; created?: boolean } | null>(null);
 
   // The chain's clock, not the browser's. On a fork that has been moved forward
   // a few days, a capsule starting "now" by the wall clock would begin in
@@ -82,11 +84,32 @@ export default function CreatePage() {
     void refresh();
   }, [refresh]);
 
+  /**
+   * Who the capsule is for. Resolved only when minting, never as they type —
+   * an email lookup can create a real Privy user, and half-typed addresses
+   * should not.
+   */
+  async function resolveRecipient(): Promise<{ address: Address; email?: string; created?: boolean } | null> {
+    const v = recipientInput.trim();
+    if (!v) return null; // yourself
+    if (/^0x[0-9a-fA-F]{40}$/.test(v)) return { address: v as Address };
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      const r = await fetch("/api/recipient/resolve", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: v }),
+      }).then((x) => x.json());
+      if (r.error) throw new Error(r.error);
+      return { address: r.address as Address, email: v.toLowerCase(), created: r.created };
+    }
+    throw new Error("The recipient has to be a 0x address or an email.");
+  }
+
   async function onMint() {
     if (!wallet || !result?.ok || !result.policy) return;
     setError(null);
     setDeclined(null);
     try {
+      const who = recipient ?? (await resolveRecipient());
+      setRecipient(who);
       const provider = (await wallet.getEthereumProvider()) as EIP1193Provider;
       const policy = withHash(result.policy);
       const { capsuleId } = await mintCapsule(
@@ -101,7 +124,7 @@ export default function CreatePage() {
             setDone(new Set(MINT_STEPS.slice(0, idx).map((m) => m.id)));
           }
         },
-        { vaultId: resumeVault },
+        { vaultId: resumeVault, recipient: who?.address },
       );
       setDone(new Set(MINT_STEPS.map((m) => m.id)));
       setResumeVault(undefined);
@@ -248,6 +271,24 @@ export default function CreatePage() {
               <div>
                 <h2 className="text-base font-semibold on-card">Mint</h2>
 
+                <label htmlFor="recipient" className="eyebrow mt-3 block">who is it for?</label>
+                <input
+                  id="recipient"
+                  value={recipientInput}
+                  onChange={(e) => {
+                    setRecipientInput(e.target.value);
+                    setRecipient(null);
+                  }}
+                  spellCheck={false}
+                  placeholder="0x… or an email — leave empty for yourself"
+                  className="mt-1 w-full rounded-lg border-2 bg-transparent px-3 py-2 font-mono text-[13px] on-card outline-none placeholder:text-[#b4b4c4]"
+                  style={{ borderColor: "rgb(22 22 26 / 0.15)" }}
+                />
+                <p className="mt-1 text-[11px] on-card-faint">
+                  An email gets a wallet made for it by Privy, before that person has ever signed in.
+                  They claim it later without needing any MON.
+                </p>
+
                 {result?.ok && result.policy && (
                   <p className="mt-2 text-[13px] on-card-dim">
                     Four transactions: open a vault, allow {amount(BigInt(result.policy.bounds.totalCap))} to
@@ -345,6 +386,19 @@ export default function CreatePage() {
           {minted && (
             <section className="card-pop p-5" style={{ ["--pop" as string]: "#2f9e5e" }}>
               <h2 className="text-base font-semibold on-card">Capsule #{minted.capsuleId.toString()} is live</h2>
+              <p className="mt-1 text-[13px] on-card-dim">
+                For{" "}
+                <span className="font-mono on-card">
+                  {recipient?.email ?? (recipient ? `${recipient.address.slice(0, 6)}…${recipient.address.slice(-4)}` : "you")}
+                </span>
+                {recipient?.email && (
+                  <>
+                    {" "}— they should sign in with <span className="font-mono on-card">{recipient.email}</span>{" "}
+                    <strong>by email</strong>, not Google, so they land on the wallet made for them
+                    {recipient.created ? " just now" : ""}.
+                  </>
+                )}
+              </p>
               <p className="mt-1 text-[13px] on-card-dim">
                 Send this link. It carries the sentence, so whoever opens it rebuilds the document and
                 checks it against the chain themselves — nothing is taken on our word.

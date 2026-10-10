@@ -238,7 +238,7 @@ export async function runOnce(
  * that the agent asked for something absurd, and the refusal belongs where the
  * hard cap is, at execution.
  */
-export async function requestMore(capsuleId: string, amount: bigint, reason: string) {
+export async function requestMore(capsuleId: string, size: bigint, reason: string) {
   if (!tryLock(capsuleId)) return { ok: false, reason: "a run is already in progress" };
   const runId = `${capsuleId}-ask-${Date.now().toString(36)}`;
   try {
@@ -246,7 +246,7 @@ export async function requestMore(capsuleId: string, amount: bigint, reason: str
     const id = BigInt(capsuleId);
     const wallet = createWalletClient({ account: agent, chain: monad, transport: http(cfg.rpcUrl) });
     const hash = await wallet.writeContract({
-      address: valetAddress(), abi: valetAbi, functionName: "requestEscalation", args: [id, amount, reason],
+      address: valetAddress(), abi: valetAbi, functionName: "requestEscalation", args: [id, size, reason],
     });
     const rcpt = await publicClient.waitForTransactionReceipt({ hash });
     const ev = parseEventLogs({ abi: valetAbi, eventName: "EscalationRequested", logs: rcpt.logs })[0] as unknown as
@@ -255,9 +255,9 @@ export async function requestMore(capsuleId: string, amount: bigint, reason: str
     const nonce = ev?.args.nonce ?? 0n;
     publish(capsuleId, {
       runId, kind: "ask", outcome: "requested", txHash: hash,
-      title: `The agent asks to spend ${amount === 0n ? "more" : amount.toString()} — waiting for the issuer`,
+      title: `The agent asks to spend ${amount(size)} in one go — waiting for the issuer`,
       detail: reason,
-      data: { amount: amount.toString(), nonce: nonce.toString(), reason },
+      data: { amount: size.toString(), nonce: nonce.toString(), reason },
     });
     return { ok: true, nonce: nonce.toString(), hash };
   } catch (err) {
