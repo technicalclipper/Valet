@@ -15,5 +15,11 @@ export default defineConfig(({ mode }) => ({
       JSON.stringify(v),
     ]),
   ),
-  test: { include: ["lib/**/*.test.ts"] },
+  test: {
+    include: ["lib/**/*.test.ts"],
+    // The live suites share one chain. Run in parallel, one file's openVault
+    // landed between another's before-and-after reads of nextVaultId and failed
+    // a correct test. Seven files run fine one after another.
+    fileParallelism: false,
+  },
 }));

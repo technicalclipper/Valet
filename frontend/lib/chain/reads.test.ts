@@ -85,17 +85,13 @@ describe.runIf(() => true)("read layer", () => {
   it("rebuilds history from events, not from anything we wrote down", async () => {
     if (!live) return;
     const { readHistory, readExecutions } = await import("./events");
-    // A narrow window on purpose. Anything reaching back past this fork's start
-    // block makes anvil ask the upstream node, which refuses the range — the
-    // real deployment sets NEXT_PUBLIC_DEPLOY_BLOCK instead of guessing.
-    const { publicClient } = await import("./client");
-    const tip = await publicClient.getBlockNumber();
-    const from = tip > 50n ? tip - 50n : 0n;
-    const h = await readHistory(1n, from);
+    // From the deploy block, the same default the app uses. A fixed window of
+    // the last 50 blocks went stale as soon as other tests mined past it.
+    const h = await readHistory(1n);
     expect(h.some((e) => e.kind === "CapsuleMinted")).toBe(true);
     expect(h.some((e) => e.kind === "CapsuleClaimed")).toBe(true);
 
-    const execs = await readExecutions(1n, from);
+    const execs = await readExecutions(1n);
     if (execs.length) {
       expect(execs[0].received).toBeGreaterThan(0n);
       expect(execs[0].txHash).toMatch(/^0x[0-9a-f]{64}$/);
