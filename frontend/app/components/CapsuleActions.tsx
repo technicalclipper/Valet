@@ -2,17 +2,34 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { createWalletClient, custom, parseAbiItem, type Address, type EIP1193Provider } from "viem";
+import { usePrivy } from "@privy-io/react-auth";
+import { parseAbiItem, type Address } from "viem";
 import { valetAbi } from "../../lib/chain/abi";
-import { monad, publicClient } from "../../lib/chain/client";
+import { publicClient } from "../../lib/chain/client";
 import { chain as cfg } from "../../lib/config/chain";
-import { chainNow } from "../../lib/chain/writes";
-import { signValet } from "../../lib/privy/sign";
 import { amount } from "../../lib/format";
+import { useControls } from "./useControls";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+type Tone = "dark" | "line" | "bad";
+function Btn({ onClick, label, tone = "dark", disabled, busy }: { onClick: () => void; label: string; tone?: Tone; disabled?: boolean; busy: string | null }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!!busy || disabled}
+      className="rounded-full border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+      style={
+        tone === "dark" ? { background: "#16161a", borderColor: "#16161a", color: "#fdfcff" }
+          : tone === "bad" ? { borderColor: "#d8366f", color: "#b5245a" }
+            : { borderColor: "rgb(22 22 26 / 0.2)", color: "#16161a" }
+      }
+    >
+      {busy === label ? "…" : label}
+    </button>
+  );
+}
 
 interface Props {
   capsuleId: string;
@@ -35,19 +52,19 @@ interface Props {
  * do all of it. The issuer's controls are ordinary transactions — they funded
  * the capsule, so they have gas — except approving an escalation, which is a
  * signature too, so it can be done from a wallet the agent cannot reach.
+ *
+ * How each of those is signed lives in useControls, shared with the dashboard.
  */
 export function CapsuleActions(p: Props) {
   const router = useRouter();
   const { authenticated, login } = usePrivy();
-  const { wallets } = useWallets();
-  const wallet = wallets[0];
-  const me = wallet?.address?.toLowerCase();
+  const c = useControls(() => router.refresh());
+  const busy = c.busy;
+  const me = c.me?.toLowerCase();
   const isIssuer = !!me && me === p.issuer.toLowerCase();
   const isPrincipal = !!me && me === p.principal.toLowerCase();
   const unclaimed = p.holder === ZERO;
 
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
   const [agent, setAgent] = useState<Address | null>(null);
   const [holderChoice, setHolderChoice] = useState<"agent" | "other">("agent");
   const [otherHolder, setOtherHolder] = useState("");
@@ -85,100 +102,26 @@ export function CapsuleActions(p: Props) {
     return () => clearInterval(t);
   }, [pollAsk]);
 
-  async function act(label: string, fn: () => Promise<void>) {
-    setBusy(label);
-    setMsg(null);
-    try {
-      await fn();
-      router.refresh();
-    } catch (e) {
-      const err = e as { code?: number; shortMessage?: string; message?: string };
-      const declined = err.code === 4001 || /rejected|denied/i.test(err.message ?? "");
-      setMsg({ tone: "bad", text: declined ? "You declined it in your wallet. Nothing changed." : err.shortMessage ?? err.message ?? "That did not work." });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function provider() {
-    return (await wallet!.getEthereumProvider()) as EIP1193Provider;
-  }
-  async function deadline() {
-    return BigInt((await chainNow()) + 3600);
-  }
-  async function principalNonce() {
-    return (await publicClient.readContract({
-      address: p.valet, abi: valetAbi, functionName: "principalNonce", args: [BigInt(p.capsuleId)],
-    })) as bigint;
-  }
-  async function relay(path: string, body: Record<string, unknown>) {
-    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-      .then((x) => x.json());
-    if (!r.ok) throw new Error(r.error ?? "The relayer refused it.");
-  }
-
-  // --- the recipient, by signature -------------------------------------------
-  const claim = () => act("claim", async () => {
-    const holder = (holderChoice === "agent" ? agent : otherHolder.trim()) as Address;
-    if (!holder || !/^0x[0-9a-fA-F]{40}$/.test(holder)) throw new Error("Choose who will act on it.");
-    const d = await deadline();
-    const signature = await signValet(await provider(), wallet!.address as Address, p.valet, "Claim", {
-      capsuleId: BigInt(p.capsuleId), holder, nonce: await principalNonce(), deadline: d,
-    });
-    await relay("/api/relay/claim", { capsuleId: p.capsuleId, holder, deadline: d.toString(), signature });
-    setMsg({ tone: "good", text: "Claimed. The agent can act from the next window — and you paid nothing." });
-  });
-
-  const principalAction = (action: 0 | 1, value: boolean, label: string) => act(label, async () => {
-    const d = await deadline();
-    const signature = await signValet(await provider(), wallet!.address as Address, p.valet, "PrincipalAction", {
-      capsuleId: BigInt(p.capsuleId), action, value, nonce: await principalNonce(), deadline: d,
-    });
-    await relay("/api/relay/principal", { capsuleId: p.capsuleId, action, value, deadline: d.toString(), signature });
-  });
-
-  // --- the issuer -----------------------------------------------------------
+  const id = p.capsuleId;
+  const claim = () =>
+    c.claim(id, (holderChoice === "agent" ? agent : otherHolder.trim()) as Address, "claim",
+      "Claimed. The agent can act from the next window — and you paid nothing.");
+  const principalAction = (action: 0 | 1, value: boolean, label: string) => c.principalAction(id, action, value, label);
   const issuerTx = (fn: "revoke" | "setPausedByIssuer" | "revokeVaultAndSweep", args: readonly unknown[], label: string) =>
-    act(label, async () => {
-      const w = createWalletClient({ account: wallet!.address as Address, chain: monad, transport: custom(await provider()) });
-      await w.switchChain({ id: cfg.id }).catch(() => {});
-      const hash = await w.writeContract({ address: p.valet, abi: valetAbi, functionName: fn, args: args as never });
-      await publicClient.waitForTransactionReceipt({ hash });
-    });
-
-  const approve = () => act("approve", async () => {
+    c.issuerTx(fn, args, label);
+  const approve = async () => {
     if (!ask) return;
-    const d = await deadline();
-    const signature = await signValet(await provider(), wallet!.address as Address, p.valet, "Escalation", {
-      capsuleId: BigInt(p.capsuleId), amount: ask.amount, nonce: ask.nonce, deadline: d,
-    });
-    await relay("/api/relay/escalation", {
-      capsuleId: p.capsuleId, amount: ask.amount.toString(), nonce: ask.nonce.toString(), deadline: d.toString(), signature,
-    });
-    setAsk(null);
-    setMsg({ tone: "good", text: "Approved. Watch the console — the agent spends it now, or the hard cap refuses it." });
-  });
+    const ok = await c.approveEscalation(id, ask.amount, ask.nonce, "approve",
+      "Approved. Watch the console — the agent spends it now, or the hard cap refuses it.");
+    if (ok) setAsk(null);
+  };
 
   // --- render ---------------------------------------------------------------
   if (p.ended) return null;
 
-  const Btn = ({ onClick, label, tone = "dark", disabled }: { onClick: () => void; label: string; tone?: "dark" | "line" | "bad"; disabled?: boolean }) => (
-    <button
-      onClick={onClick}
-      disabled={!!busy || disabled}
-      className="rounded-full border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
-      style={
-        tone === "dark" ? { background: "#16161a", borderColor: "#16161a", color: "#fdfcff" }
-          : tone === "bad" ? { borderColor: "#d8366f", color: "#b5245a" }
-            : { borderColor: "rgb(22 22 26 / 0.2)", color: "#16161a" }
-      }
-    >
-      {busy === label ? "…" : label}
-    </button>
-  );
 
-  const note = msg && (
-    <p className="mt-3 text-[12px]" style={{ color: msg.tone === "good" ? "#1f7a46" : "#b5245a" }}>{msg.text}</p>
+  const note = c.msg && (
+    <p className="mt-3 text-[12px]" style={{ color: c.msg.tone === "good" ? "#1f7a46" : "#b5245a" }}>{c.msg.text}</p>
   );
 
   // the agent is asking, and you are the one who can say yes
@@ -205,7 +148,7 @@ export function CapsuleActions(p: Props) {
         the agent never holds.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Btn onClick={approve} label="Approve with my signature" />
+        <Btn busy={busy} onClick={approve} label="Approve with my signature" />
       </div>
       {note}
     </section>
@@ -221,7 +164,7 @@ export function CapsuleActions(p: Props) {
             choose who acts on it, nothing can be spent.
           </p>
           {!authenticated ? (
-            <div className="mt-3"><Btn onClick={login} label="Sign in — is it yours?" /></div>
+            <div className="mt-3"><Btn busy={busy} onClick={login} label="Sign in — is it yours?" /></div>
           ) : (
             <p className="mt-2 text-[12px] on-card-faint">
               You are signed in as {short(me ?? ZERO)}. If you were given this by email, sign in with that
@@ -265,7 +208,7 @@ export function CapsuleActions(p: Props) {
             </span>
           </label>
         </div>
-        <div className="mt-4"><Btn onClick={claim} label="Sign and claim" /></div>
+        <div className="mt-4"><Btn busy={busy} onClick={claim} label="Sign and claim" /></div>
         {note}
       </section>
     );
@@ -287,9 +230,9 @@ export function CapsuleActions(p: Props) {
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {p.pausedByPrincipal
-                ? <Btn onClick={() => principalAction(0, false, "Resume")} label="Resume" />
-                : <Btn onClick={() => principalAction(0, true, "Pause")} label="Pause" tone="line" />}
-              <Btn onClick={() => principalAction(1, true, "Hand it back")} label="Hand it back" tone="bad" />
+                ? <Btn busy={busy} onClick={() => principalAction(0, false, "Resume")} label="Resume" />
+                : <Btn busy={busy} onClick={() => principalAction(0, true, "Pause")} label="Pause" tone="line" />}
+              <Btn busy={busy} onClick={() => principalAction(1, true, "Hand it back")} label="Hand it back" tone="bad" />
             </div>
           </div>
         )}
@@ -302,10 +245,10 @@ export function CapsuleActions(p: Props) {
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {p.pausedByIssuer
-                ? <Btn onClick={() => issuerTx("setPausedByIssuer", [BigInt(p.capsuleId), false], "Resume")} label="Resume" />
-                : <Btn onClick={() => issuerTx("setPausedByIssuer", [BigInt(p.capsuleId), true], "Pause")} label="Pause" tone="line" />}
-              <Btn onClick={() => issuerTx("revoke", [BigInt(p.capsuleId)], "Revoke")} label="Revoke" tone="bad" />
-              <Btn onClick={() => issuerTx("revokeVaultAndSweep", [BigInt(p.vaultId)], "Revoke and return the money")} label="Revoke and return the money" tone="bad" />
+                ? <Btn busy={busy} onClick={() => issuerTx("setPausedByIssuer", [BigInt(p.capsuleId), false], "Resume")} label="Resume" />
+                : <Btn busy={busy} onClick={() => issuerTx("setPausedByIssuer", [BigInt(p.capsuleId), true], "Pause")} label="Pause" tone="line" />}
+              <Btn busy={busy} onClick={() => issuerTx("revoke", [BigInt(p.capsuleId)], "Revoke")} label="Revoke" tone="bad" />
+              <Btn busy={busy} onClick={() => issuerTx("revokeVaultAndSweep", [BigInt(p.vaultId)], "Revoke and return the money")} label="Revoke and return the money" tone="bad" />
             </div>
           </div>
         )}

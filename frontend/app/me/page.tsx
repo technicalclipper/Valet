@@ -214,7 +214,7 @@ function CapsuleCard({
   const msg = controls.msg && controls.msg.key.startsWith(`${r.id}:`) ? controls.msg : null;
 
   /** irreversible actions take two clicks */
-  function twice(key: string, act: () => Promise<void>) {
+  function twice(key: string, act: () => Promise<unknown>) {
     if (confirming !== key) return setConfirming(key);
     setConfirming(null);
     void act().then(onChanged);
