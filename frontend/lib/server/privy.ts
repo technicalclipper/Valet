@@ -15,7 +15,7 @@
  */
 const BASE = "https://auth.privy.io/api/v1";
 
-function headers() {
+export function headers() {
   const id = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
   const secret = process.env.PRIVY_APP_SECRET;
   if (!id || !secret) throw new Error("Privy is not configured on the server.");
@@ -57,4 +57,19 @@ export async function walletForEmail(email: string): Promise<{ address: string; 
   const addr = walletOf((await made.json()) as PrivyUser);
   if (!addr) throw new Error("Privy created the user but returned no wallet address.");
   return { address: addr, created: true };
+}
+
+/**
+ * Every Ethereum wallet linked to a Privy user — embedded or external — so a
+ * person who signed in with MetaMask is recognised as well as one using the
+ * wallet Privy made.
+ */
+export async function walletsOfUser(userId: string): Promise<string[]> {
+  const r = await fetch(`${BASE}/users/${encodeURIComponent(userId)}`, { headers: headers() });
+  if (!r.ok) throw new Error(`Privy user lookup failed (${r.status}).`);
+  const u = (await r.json()) as PrivyUser;
+  const all = [...(u.linked_accounts ?? []), ...(u.wallets ?? [])];
+  return all
+    .filter((a) => a.type === "wallet" && (a.chain_type ?? "ethereum") === "ethereum" && a.address)
+    .map((a) => a.address!.toLowerCase());
 }

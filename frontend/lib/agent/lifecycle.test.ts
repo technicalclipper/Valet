@@ -24,9 +24,19 @@ const recipient = privateKeyToAccount("0x47e179ec197488593b187f80a00eb0da91f1b9d
 let live = false;
 let capsuleId = 0n;
 
-const post = (path: string, body: unknown) =>
-  fetch(`${APP}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+  fetch(`${APP}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) })
     .then(async (r) => ({ status: r.status, ...(await r.json()) }));
+
+// a stranger: party to nothing
+const stranger = privateKeyToAccount("0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba");
+
+/** Prove who is calling, the way a script or the MCP server does: sign the action, the capsule and the time. */
+async function as(who: typeof issuer, action: string) {
+  const at = Math.floor(Date.now() / 1000);
+  const signature = await who.signMessage({ message: `Valet: ${action} capsule ${capsuleId} at ${at}` });
+  return { "x-valet-signature": signature, "x-valet-at": String(at) };
+}
 
 beforeAll(async () => {
   try {
@@ -92,7 +102,7 @@ async function sign(who: typeof issuer, primaryType: "Claim" | "PrincipalAction"
 async function askWhenFree(amount: string, reason: string) {
   const end = Date.now() + 20_000;
   for (;;) {
-    const r = await post(`/api/agent/${capsuleId}/ask`, { amount, reason });
+    const r = await post(`/api/agent/${capsuleId}/ask`, { amount, reason }, await as(issuer, "ask"));
     if (r.ok || !/in progress/.test(String(r.reason)) || Date.now() > end) return r;
     await new Promise((res) => setTimeout(res, 400));
   }
@@ -105,6 +115,24 @@ async function waitFor(fn: () => Promise<boolean>, ms = 15_000) {
 }
 
 describe("the full lifecycle, through the relayer", () => {
+  it("only the issuer or recipient can make the agent ask, since every ask costs the agent gas", async () => {
+    if (!live) return;
+    const nobody = await post(`/api/agent/${capsuleId}/ask`, { amount: "150000", reason: "x" });
+    expect(nobody.status).toBe(401);
+    const outsider = await post(`/api/agent/${capsuleId}/ask`, { amount: "150000", reason: "x" }, await as(stranger, "ask"));
+    expect(outsider.status).toBe(403);
+    // the issuer's signature for a different action does not carry over: checked
+    // against the ask message it recovers to some unrelated address
+    const wrongAction = await post(`/api/agent/${capsuleId}/ask`, { amount: "150000", reason: "x" }, await as(issuer, "run"));
+    expect(wrongAction.status).toBe(403);
+  }, 30_000);
+
+  it("a stranger cannot drip the window away in tiny trades", async () => {
+    if (!live) return;
+    const tiny = await post(`/api/agent/${capsuleId}/run`, { amountIn: "1000" }, await as(stranger, "run"));
+    expect(tiny.status).toBe(403);
+  }, 30_000);
+
   it("a recipient with no gas claims, choosing the managed agent", async () => {
     if (!live) return;
     const agent = (await fetch(`${APP}/api/agent/info`).then((r) => r.json())).address as Address;

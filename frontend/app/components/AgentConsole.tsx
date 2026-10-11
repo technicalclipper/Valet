@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { STEPS, type AgentEvent, type StepId } from "../../lib/agent/types";
 import { ASSERT_GROUPS } from "../../lib/chain/reads";
 import { ASSERT_LABEL } from "../../lib/format";
@@ -48,8 +48,10 @@ export function AgentConsole({
   isFork: boolean;
 }) {
   const router = useRouter();
+  const { getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const me = wallets[0]?.address?.toLowerCase();
+  const isParty = !!me && (me === issuer.toLowerCase() || me === principal.toLowerCase());
   const role =
     me && me === issuer.toLowerCase()
       ? "you are the issuer"
@@ -211,14 +213,22 @@ export function AgentConsole({
     }
   }
 
-  /** The agent asks the issuer for more than its per-action cap allows. */
+  /**
+   * The agent asks the issuer for more than its per-action cap allows.
+   *
+   * Each ask is a transaction the agent pays for, so the server only takes it
+   * from the issuer or the recipient — this sends the Privy session to prove
+   * which one you are.
+   */
   async function askFor(multiple: 1.5 | 10) {
     setNote(null);
     setBusy(true);
     const amt = (BigInt(perAction) * BigInt(multiple * 10)) / 10n;
     const reason = multiple === 10 ? "let me go big — ten times today's cap" : "the book is deep today; one larger buy";
+    const token = await getAccessToken().catch(() => null);
     const r = await fetch(`/api/agent/${capsuleId}/ask`, {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ amount: amt.toString(), reason }),
     }).then((x) => x.json());
     if (!r.ok) {
@@ -504,6 +514,7 @@ export function AgentConsole({
         >
           Ask for 4× — watch it refuse
         </button>
+        {isParty && (<>
         <button
           onClick={() => askFor(1.5)}
           disabled={busy}
@@ -520,6 +531,7 @@ export function AgentConsole({
         >
           Agent asks for 10×
         </button>
+        </>)}
         {isFork && (
           <button
             onClick={nextDay}
