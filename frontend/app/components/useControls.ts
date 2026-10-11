@@ -58,6 +58,8 @@ export function useControls(onDone?: () => void) {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }).then((x) => x.json());
     if (!r.ok) throw new Error(r.error ?? "The relayer refused it.");
+    // an approval's run comes back with the reply; hand it to the console
+    if (Array.isArray(r.events)) window.dispatchEvent(new CustomEvent("valet:events", { detail: r.events }));
   }
 
   /** choose who acts on it — the recipient, by signature */

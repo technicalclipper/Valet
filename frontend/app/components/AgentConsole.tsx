@@ -182,6 +182,24 @@ export function AgentConsole({
     playing.current = false;
   }, [play]);
 
+  /**
+   * Events reach the console two ways: live over SSE, and in the reply to the
+   * action that caused them. On one long-lived server both arrive; on
+   * serverless the stream may be on another machine and only the reply does.
+   * Each event is played once, whichever way it came first.
+   */
+  const seen = useRef(new Set<string>());
+  const ingest = useCallback((list: AgentEvent[] | undefined) => {
+    for (const e of list ?? []) {
+      if (e.capsuleId !== capsuleId) continue;
+      const k = `${e.runId}:${e.seq}`;
+      if (seen.current.has(k)) continue;
+      seen.current.add(k);
+      queue.current.push(e);
+    }
+    void pump();
+  }, [capsuleId, pump]);
+
   useEffect(() => {
     const opened = Date.now();
     const es = new EventSource(`/api/agent/${capsuleId}/stream`);
@@ -196,11 +214,16 @@ export function AgentConsole({
         speed.current = 0.35;
         setReplaying(true);
       }
-      queue.current.push(e);
-      void pump();
+      ingest([e]);
     };
-    return () => es.close();
-  }, [capsuleId, pump]);
+    // replies to actions taken elsewhere on the page, such as the issuer's approval
+    const onReply = (ev: Event) => ingest((ev as CustomEvent<AgentEvent[]>).detail);
+    window.addEventListener("valet:events", onReply);
+    return () => {
+      es.close();
+      window.removeEventListener("valet:events", onReply);
+    };
+  }, [capsuleId, ingest]);
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "nearest" });
@@ -214,8 +237,10 @@ export function AgentConsole({
       headers: { "content-type": "application/json" },
       body: JSON.stringify(amountIn ? { amountIn } : {}),
     });
-    if (res.status === 409) {
-      setNote("A run is already in progress.");
+    const body = (await res.json().catch(() => ({}))) as { events?: AgentEvent[]; reason?: string };
+    ingest(body.events);
+    if (!res.ok) {
+      setNote(res.status === 409 ? "A run is already in progress." : body.reason ?? "The agent could not run.");
       setBusy(false);
     }
   }
@@ -238,6 +263,7 @@ export function AgentConsole({
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ amount: amt.toString(), reason }),
     }).then((x) => x.json());
+    ingest(r.events);
     if (!r.ok) {
       setNote(r.reason ?? "The agent could not ask.");
       setBusy(false);

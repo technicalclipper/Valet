@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseEventLogs, type Address } from "viem";
+import { createPublicClient, http, parseEventLogs, type Address } from "viem";
 import { valetAbi } from "./abi";
-import { publicClient } from "./client";
+import { monad, publicClient } from "./client";
 import { chain as cfg, valetAddress } from "../config/chain";
 import { fromJson as dec, toJson as enc } from "../json";
 
@@ -29,12 +30,24 @@ export interface IndexedLog {
 
 interface Index { address: string; next: bigint; logs: IndexedLog[]; syncedAt: number; syncing?: Promise<void> }
 
+/**
+ * Logs can come from a different RPC than everything else. rpc.monad.xyz
+ * serves 100 blocks a call; rpc2.monad.xyz serves 10,000, which turns
+ * rebuilding a day of history from two thousand calls into twenty — the
+ * difference that matters on a host that starts cold.
+ */
+const logClient = process.env.LOG_RPC_URL
+  ? createPublicClient({ chain: monad, transport: http(process.env.LOG_RPC_URL, { timeout: 10_000, retryCount: 1 }) })
+  : publicClient;
+
 /** blocks per eth_getLogs: 100 is Monad's public limit; a local fork takes far more */
 const RANGE = BigInt(process.env.LOG_RANGE ?? (cfg.isMainnet ? 100 : 10_000));
 const PARALLEL = Number(process.env.LOG_PARALLEL ?? 6);
 const FRESH_MS = 1_500;
 
-const file = () => join(process.cwd(), "data", "index", `${cfg.id}-${valetAddress().toLowerCase()}.json`);
+/** serverless file systems are read-only apart from the temp dir */
+const dir = () => (process.env.VERCEL ? join(tmpdir(), "valet-index") : join(process.cwd(), "data", "index"));
+const file = () => join(dir(), `${cfg.id}-${valetAddress().toLowerCase()}.json`);
 
 
 const g = globalThis as unknown as { __valetIndex?: Index };
@@ -53,7 +66,7 @@ function index(): Index {
 
 function save(ix: Index) {
   try {
-    mkdirSync(join(process.cwd(), "data", "index"), { recursive: true });
+    mkdirSync(dir(), { recursive: true });
     writeFileSync(`${file()}.tmp`, enc({ next: ix.next, logs: ix.logs }));
     renameSync(`${file()}.tmp`, file());
   } catch { /* read-only disks still work, from memory */ }
@@ -62,7 +75,7 @@ function save(ix: Index) {
 async function fetchRange(from: bigint, to: bigint): Promise<IndexedLog[]> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const raw = await publicClient.getLogs({ address: valetAddress() as Address, fromBlock: from, toBlock: to });
+      const raw = await logClient.getLogs({ address: valetAddress() as Address, fromBlock: from, toBlock: to });
       return parseEventLogs({ abi: valetAbi, logs: raw }).map((l) => ({
         eventName: l.eventName,
         args: l.args as Record<string, unknown>,
@@ -78,7 +91,8 @@ async function fetchRange(from: bigint, to: bigint): Promise<IndexedLog[]> {
 }
 
 async function catchUp(ix: Index) {
-  const head = await publicClient.getBlockNumber();
+  // the head from the same RPC that serves the logs, so a lagging node is never asked past its tip
+  const head = await logClient.getBlockNumber();
   while (ix.next <= head) {
     // a batch of ranges in parallel, appended in block order
     const ranges: [bigint, bigint][] = [];

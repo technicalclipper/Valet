@@ -16,6 +16,7 @@ import { ASSERTS, preflight, readBeneficiary, readCapsule, readHeadroom } from "
 import { addresses, chain as cfg, valetAddress } from "../config/chain";
 import { amount } from "../format";
 import { lastRun, publish, tryLock, unlock } from "./bus";
+import type { AgentEvent } from "./types";
 
 const kuruAbi = parseAbi([
   "function bestBidAsk() view returns (uint256, uint256)",
@@ -79,7 +80,15 @@ export async function runOnce(
   if (!tryLock(capsuleId)) return { started: false, reason: "a run is already in progress" };
 
   const runId = `${capsuleId}-${Date.now().toString(36)}`;
-  const say = (e: Omit<Parameters<typeof publish>[1], "runId">) => publish(capsuleId, { ...e, runId });
+  // Every event is also kept for the reply. On one long-lived server the
+  // console hears them over SSE; on serverless the run and the stream can land
+  // on different machines, so the caller's console plays them from the response.
+  const events: AgentEvent[] = [];
+  const say = (e: Omit<Parameters<typeof publish>[1], "runId">) => {
+    const full = publish(capsuleId, { ...e, runId });
+    events.push(full);
+    return full;
+  };
   const id = BigInt(capsuleId);
 
   try {
@@ -189,7 +198,7 @@ export async function runOnce(
         data: { chainSays },
       });
       say({ kind: "run-end", outcome: "refused", refusedBy: verdict, title: "Nothing moved" });
-      return { started: true, runId, outcome: "refused" as const, refusedBy: verdict };
+      return { started: true, runId, outcome: "refused" as const, refusedBy: verdict, events };
     }
 
     say({ kind: "step", step: "preflight", status: "done", title: "All nineteen checks pass" });
@@ -225,11 +234,11 @@ export async function runOnce(
       data: { received: received.toString(), recipient, gasUsed: rcpt.gasUsed.toString() },
     });
     say({ kind: "run-end", outcome: "executed", title: "Done until the next window", txHash: hash });
-    return { started: true, runId, outcome: "executed" as const, txHash: hash, received: received.toString() };
+    return { started: true, runId, outcome: "executed" as const, txHash: hash, received: received.toString(), events };
   } catch (err) {
     const msg = err instanceof BaseError ? err.shortMessage : (err as Error).message;
     say({ kind: "run-end", outcome: "error", status: "error", title: "The run stopped", detail: msg });
-    return { started: true, runId, outcome: "error" as const, error: msg };
+    return { started: true, runId, outcome: "error" as const, error: msg, events };
   } finally {
     unlock(capsuleId);
   }
@@ -261,13 +270,13 @@ export async function requestMore(capsuleId: string, size: bigint, reason: strin
       | { args: { nonce: bigint } }
       | undefined;
     const nonce = ev?.args.nonce ?? 0n;
-    publish(capsuleId, {
+    const asked = publish(capsuleId, {
       runId, kind: "ask", outcome: "requested", txHash: hash,
       title: `The agent asks to spend ${amount(size)} in one go — waiting for the issuer`,
       detail: reason,
       data: { amount: size.toString(), nonce: nonce.toString(), reason },
     });
-    return { ok: true, nonce: nonce.toString(), hash };
+    return { ok: true, nonce: nonce.toString(), hash, events: [asked] };
   } catch (err) {
     const msg = err instanceof BaseError ? err.shortMessage : (err as Error).message;
     return { ok: false, reason: msg };

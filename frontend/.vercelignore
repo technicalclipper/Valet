@@ -1,0 +1,8 @@
+# never upload secrets: every key lives in Vercel's own environment settings
+.env*
+!.env.example
+# local caches and builds
+data/index
+.next
+node_modules
+tsconfig.tsbuildinfo
