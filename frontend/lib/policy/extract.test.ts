@@ -84,3 +84,39 @@ describe("what it will not do", () => {
     expect(r.policy!.advisory.length).toBe(2);
   });
 });
+
+describe("who the sentence says it is for", () => {
+  it("reads an email", async () => {
+    const e = await extractWithRules("Buy 5 USDC of MON daily for 30 days, send the MON to Bob@Gmail.com");
+    expect(e.recipientHint).toEqual({ kind: "email", value: "bob@gmail.com" });
+  });
+
+  it("reads an address, keeping its casing for display", async () => {
+    const e = await extractWithRules("Buy 5 USDC of MON daily for 30 days to 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65");
+    expect(e.recipientHint).toEqual({ kind: "address", value: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65" });
+  });
+
+  it("notices a bare name it cannot resolve", async () => {
+    const e = await extractWithRules("Buy 5 USDC of MON daily for 30 days, send the MON to bob");
+    expect(e.recipientHint).toBeUndefined();
+    expect(e.nameHint).toBe("bob");
+  });
+
+  it("does not mistake the venue or the vault for a person", async () => {
+    const e = await extractWithRules("Buy 5 USDC of MON daily for 30 days on kuru, keep the vault");
+    expect(e.nameHint).toBeUndefined();
+  });
+
+  it("names the recipient in the clause once it is known", async () => {
+    const S = "Buy 5 USDC of MON daily for 30 days, send the MON to bob";
+    const r = compile(S, await extractWithRules(S), NOW, { recipient: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65" });
+    expect(r.policy!.recipient).toBe("0x15d34aaf54267db7d7c367839aaf71a00a2c6a65");
+    expect(r.clauses.some((c) => /0x15d3…6a65/i.test(c.text))).toBe(true);
+  });
+
+  it("refuses a recipient that is not an address", async () => {
+    const S = "Buy 5 USDC of MON daily for 30 days";
+    const r = compile(S, await extractWithRules(S), NOW, { recipient: "bob" });
+    expect(r.ok).toBe(false);
+  });
+});

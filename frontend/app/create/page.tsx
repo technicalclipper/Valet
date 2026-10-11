@@ -20,6 +20,7 @@ import {
   type MintStep,
 } from "../../lib/chain/writes";
 import { amount } from "../../lib/format";
+import { rememberLink } from "../../lib/links";
 import { chain } from "../../lib/config/chain";
 import type { CompileResult } from "../../lib/policy/types";
 
@@ -34,6 +35,7 @@ export default function CreatePage() {
   const { ready, authenticated, login } = usePrivy();
   const { wallets } = useWallets();
   const wallet = wallets[0];
+  const address = wallet?.address as Address | undefined;
 
   const [sentence, setSentence] = useState(EXAMPLES[0]);
   const [result, setResult] = useState<CompileResult | null>(null);
@@ -46,6 +48,8 @@ export default function CreatePage() {
   const [done, setDone] = useState<Set<MintStep>>(new Set());
   const [now, setNow] = useState<number | null>(null);
   const [recipientInput, setRecipientInput] = useState("");
+  const [recipientTouched, setRecipientTouched] = useState(false);
+  const [hints, setHints] = useState<{ recipient?: { kind: string; value: string }; name?: string }>({});
   const [recipient, setRecipient] = useState<{ address: Address; email?: string; created?: boolean } | null>(null);
 
   // The chain's clock, not the browser's. On a fork that has been moved forward
@@ -61,15 +65,30 @@ export default function CreatePage() {
     let live = true;
     (async () => {
       const extracted = await extractWithRules(sentence);
-      const r = compile(sentence, extracted, now ?? Math.floor(Date.now() / 1000));
-      if (live) setResult(r);
+      // Compile against the recipient as far as it is known: a typed address,
+      // or yourself when the field is empty. An email is not an address until
+      // Privy resolves it at mint, so until then the clause says "the recipient".
+      const typed = recipientInput.trim();
+      const preview = /^0x[0-9a-fA-F]{40}$/.test(typed)
+        ? typed
+        : !typed && !extracted.recipientHint
+          ? address
+          : extracted.recipientHint?.kind === "address"
+            ? extracted.recipientHint.value
+            : undefined;
+      const r = compile(sentence, extracted, now ?? Math.floor(Date.now() / 1000), { recipient: preview });
+      if (live) {
+        setResult(r);
+        setHints({ recipient: extracted.recipientHint, name: extracted.nameHint });
+        // the sentence named someone: fill the field, unless they have typed in it
+        if (extracted.recipientHint && !recipientTouched) setRecipientInput(extracted.recipientHint.value);
+      }
     })();
     return () => {
       live = false;
     };
-  }, [sentence, now]);
+  }, [sentence, now, recipientInput, recipientTouched, address]);
 
-  const address = wallet?.address as Address | undefined;
 
   const refresh = useMemo(
     () => async () => {
@@ -108,10 +127,15 @@ export default function CreatePage() {
     setError(null);
     setDeclined(null);
     try {
-      const who = recipient ?? (await resolveRecipient());
+      const who = recipient ?? (await resolveRecipient()) ?? { address: wallet.address as Address };
       setRecipient(who);
+      // the recipient is part of what gets hashed, so compile again with it fixed
+      const recompiled = compile(sentence, await extractWithRules(sentence), now ?? Math.floor(Date.now() / 1000), {
+        recipient: who.address,
+      });
+      if (!recompiled.ok || !recompiled.policy) throw new Error(recompiled.blockers.join(" "));
       const provider = (await wallet.getEthereumProvider()) as EIP1193Provider;
-      const policy = withHash(result.policy);
+      const policy = withHash(recompiled.policy);
       const { capsuleId } = await mintCapsule(
         provider,
         wallet.address as Address,
@@ -124,7 +148,7 @@ export default function CreatePage() {
             setDone(new Set(MINT_STEPS.slice(0, idx).map((m) => m.id)));
           }
         },
-        { vaultId: resumeVault, recipient: who?.address },
+        { vaultId: resumeVault },
       );
       setDone(new Set(MINT_STEPS.map((m) => m.id)));
       setResumeVault(undefined);
@@ -132,7 +156,9 @@ export default function CreatePage() {
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=+$/, "");
-      setMinted({ capsuleId, link: `${location.origin}/c/${capsuleId}?s=${s}` });
+      const link = `${location.origin}/c/${capsuleId}?s=${s}&r=${who.address}`;
+      setMinted({ capsuleId, link });
+      rememberLink(capsuleId.toString(), { sentence, recipient: who.address, email: who.email, role: "issuer" });
       void refresh();
     } catch (e) {
       setProgress(null);
@@ -277,6 +303,7 @@ export default function CreatePage() {
                   value={recipientInput}
                   onChange={(e) => {
                     setRecipientInput(e.target.value);
+                    setRecipientTouched(true);
                     setRecipient(null);
                   }}
                   spellCheck={false}
@@ -284,6 +311,17 @@ export default function CreatePage() {
                   className="mt-1 w-full rounded-lg border-2 bg-transparent px-3 py-2 font-mono text-[13px] on-card outline-none placeholder:text-[#b4b4c4]"
                   style={{ borderColor: "rgb(22 22 26 / 0.15)" }}
                 />
+                {hints.name && !recipientInput.trim() && (
+                  <p className="mt-2 rounded-lg border-2 px-3 py-2 text-[12px]" style={{ borderColor: "#f0b8cd", background: "#fff5f8", color: "#b5245a" }}>
+                    Your sentence says &ldquo;{hints.name}&rdquo; but not who that is. Add {hints.name}&apos;s email or
+                    address here — left empty, this capsule will be for <strong>you</strong>.
+                  </p>
+                )}
+                {hints.recipient && !recipientTouched && (
+                  <p className="mt-1 text-[11px]" style={{ color: "#1f7a46" }}>
+                    Filled in from your sentence.
+                  </p>
+                )}
                 <p className="mt-1 text-[11px] on-card-faint">
                   An email gets a wallet made for it by Privy, before that person has ever signed in.
                   They claim it later without needing any MON.

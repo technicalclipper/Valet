@@ -62,6 +62,8 @@ export function verifyCapsule(policy: Policy, capsule: OnChainCapsule): Verifica
     eq("assetOut", policy.assetOut, capsule.assetOut),
     eq("beneficiaryMode", String(policy.beneficiaryMode), String(capsule.mode)),
     eq("fixedBeneficiary", policy.fixedBeneficiary, capsule.fixedBeneficiary),
+    // who it is for — the term "send the MON to bob" is actually about
+    eq("recipient", policy.recipient ?? "", capsule.principal),
   ];
 
   const failures = fields.filter((f) => !f.ok);

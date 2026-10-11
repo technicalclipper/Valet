@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import type { Address } from "viem";
 import { CopyChip } from "./CopyChip";
@@ -134,6 +135,15 @@ export function AccountChip() {
               This wallet cannot fund a capsule yet.
             </p>
           )}
+
+          <Link
+            href="/me"
+            onClick={() => setOpen(false)}
+            className="mt-3 block rounded-full px-3 py-1.5 text-center text-[12px] font-semibold text-white"
+            style={{ background: "#16161a" }}
+          >
+            Your capsules →
+          </Link>
         </div>
       )}
     </div>

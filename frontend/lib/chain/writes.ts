@@ -81,8 +81,11 @@ export async function mintCapsule(
   account: Address,
   policy: Policy,
   onProgress: (p: MintProgress) => void,
-  resume: { vaultId?: bigint; recipient?: Address } = {},
+  resume: { vaultId?: bigint } = {},
 ): Promise<{ vaultId: bigint; capsuleId: bigint }> {
+  if (!/^0x[0-9a-f]{40}$/.test(policy.recipient ?? "")) {
+    throw new MintInterrupted("approve", false, resume.vaultId, new Error("The policy names no recipient."));
+  }
   const wallet = walletFrom(provider, account);
   const valet = valetAddress();
   const usdc = policy.assetIn as Address;
@@ -137,8 +140,9 @@ export async function mintCapsule(
       args: [
         {
           vaultId,
-          // whoever the capsule is for; yourself when nobody else is named
-          principal: resume.recipient ?? (policy.beneficiaryMode === 2 ? (policy.fixedBeneficiary as Address) : account),
+          // the recipient is a term of the hashed policy, so it is minted from
+          // there and nowhere else — the badge can then check it
+          principal: policy.recipient as Address,
           mode: policy.beneficiaryMode,
           fixedBeneficiary: policy.fixedBeneficiary as Address,
           assetOut: policy.assetOut as Address,

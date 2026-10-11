@@ -61,7 +61,8 @@ async function freshPolicy() {
   const { withHash } = await import("../policy/canonical");
   const { chainNow } = await import("./writes");
   const s = "Buy 5 USDC of MON daily for 30 days, max 1% slippage, send the MON to bob";
-  return withHash(compile(s, await extractWithRules(s), await chainNow()).policy!);
+  // the recipient is a hashed term now, so a policy without one cannot mint
+  return withHash(compile(s, await extractWithRules(s), await chainNow(), { recipient: ACCOUNT }).policy!);
 }
 
 async function resetAllowance() {

@@ -62,12 +62,20 @@ export const extractWithRules: Extractor = async (source) => {
   const ceil = s.match(/(?:ceiling|hard cap|never more than|at most)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(usdc|mon)/);
   if (ceil) out.hardCeiling = { value: Number(ceil[1]), asset: ceil[2] };
 
-  // where the proceeds go
+  // where the proceeds go, and to whom
   if (/\b(keep|back to|into) the vault\b/.test(s)) out.beneficiary = { kind: "vault" };
+  else out.beneficiary = { kind: "principal" };
+
+  // The original sentence is matched, not the lowercased one, so an address
+  // keeps its checksum casing for display. Lowercased later, where it is hashed.
+  const email = source.match(/\bto\s+([^\s@,;]+@[^\s@,;]+\.[a-z]{2,24})\b/i);
+  const addr = source.match(/\bto\s+(0x[0-9a-fA-F]{40})\b/);
+  if (email) out.recipientHint = { kind: "email", value: email[1].toLowerCase() };
+  else if (addr) out.recipientHint = { kind: "address", value: addr[1] };
   else {
-    const to = s.match(/(?:send|to)\s+(?:the\s+\w+\s+)?to\s+(0x[0-9a-f]{40})/);
-    if (to) out.beneficiary = { kind: "fixed", label: to[1] };
-    else out.beneficiary = { kind: "principal" };
+    // "send the MON to bob" — a name the sentence gives and nothing can resolve
+    const name = source.match(/\b(?:send|give|pay)\b[^.]*?\bto\s+([A-Za-z][\w'-]{1,30})\b(?![^.]*@)/i);
+    if (name && !/^(the|my|me|a|an|kuru|vault|this|that)$/i.test(name[1])) out.nameHint = name[1];
   }
 
   if (/\bkuru\b/.test(s)) out.venues = ["kuru"];

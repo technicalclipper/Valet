@@ -102,7 +102,12 @@ export function compile(
   source: string,
   extracted: ExtractedPolicy,
   now: number = Math.floor(Date.now() / 1000),
+  opts: { recipient?: string } = {},
 ): CompileResult {
+  const recipient = (opts.recipient ?? "").toLowerCase();
+  if (recipient && !/^0x[0-9a-f]{40}$/.test(recipient)) {
+    return { ok: false, clauses: [], blockers: [`"${opts.recipient}" is not an address.`] };
+  }
   const clauses: Clause[] = [];
   const blockers: string[] = [];
   const advisory: string[] = [];
@@ -193,7 +198,8 @@ export function compile(
       ? { hour: "every hour", day: "once a day", week: "once a week", month: "once a month" }[unit]
       : `once every ${every} ${unit}s`;
   const forHowLong = `${periods} ${unit}${periods === 1 ? "" : "s"}`;
-  const WHERE = { vault: "back into the vault", principal: "to the recipient", fixed: "to one fixed address" }[ben.kind];
+  const who = recipient ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}` : "the recipient";
+  const WHERE = { vault: "back into the vault", principal: `to ${who}`, fixed: "to one fixed address" }[ben.kind];
 
   clauses.push(
     { text: `spends at most ${amt.value} ${UNIT} at a time`, verdict: "enforced", boundTo: "bounds.perAction", because: "Checked on every spend. A larger request is refused as OVER_ACTION_CAP." },
@@ -204,7 +210,7 @@ export function compile(
     { text: `never more than ${formatUnits(hardCap, ASSETS[assetInKey].decimals)} ${UNIT} in one go, whatever anyone approves`, verdict: "enforced", boundTo: "bounds.hardCap", because: "Nothing lifts this. Not an escalation, not the issuer, not a compromised backend." },
     { text: `${formatUnits(totalCap, ASSETS[assetInKey].decimals)} ${UNIT} in total, ever`, verdict: "enforced", boundTo: "bounds.totalCap", because: "The most that can ever move through this capsule." },
     { text: `trades on ${venueKeys.map((v) => VENUES[v]?.label ?? v).join(" or ")} only`, verdict: "enforced", boundTo: "allowedTargets", because: "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies." },
-    { text: `sends the proceeds ${WHERE}`, verdict: "enforced", boundTo: "beneficiaryMode", because: "Checked against the request on every spend, so the agent cannot pay itself." },
+    { text: `sends the proceeds ${WHERE}`, verdict: "enforced", boundTo: "principal", because: "Named at mint and checked on every spend, so the agent cannot pay itself — and checked against this document, so nobody can swap who it is for." },
   );
 
   if (blockers.length) return { ok: false, clauses, blockers };
@@ -230,6 +236,7 @@ export function compile(
     fixedBeneficiary: beneficiaryMode === 2 ? ben.label! : "0x0000000000000000000000000000000000000000",
     allowedTargets,
     advisory,
+    recipient,
   };
 
   return { ok: true, policy, clauses, blockers: [] };

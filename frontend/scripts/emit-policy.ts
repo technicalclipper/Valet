@@ -17,7 +17,9 @@ const SENTENCE =
 const notBefore = Number(process.env.NOT_BEFORE ?? Math.floor(Date.now() / 1000));
 const capsuleId = process.env.CAPSULE_ID ?? "1";
 
-const result = compile(SENTENCE, await extractWithRules(SENTENCE), notBefore);
+// SeedDemo's principal; the seeded capsule's document has to name it to verify
+const recipient = process.env.PRINCIPAL ?? "0x0000000000000000000000000000000000000B0b";
+const result = compile(SENTENCE, await extractWithRules(SENTENCE), notBefore, { recipient });
 if (!result.ok || !result.policy) {
   console.error("compile failed:", result.blockers.join(" "));
   process.exit(1);

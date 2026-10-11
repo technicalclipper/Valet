@@ -34,6 +34,10 @@ export interface ExtractedPolicy {
   startAt?: string;
   /** anything the extractor could not map to a field above */
   unmapped?: string[];
+  /** "send the MON to bob@gmail.com" / "to 0x…" — who it is for, if the sentence says */
+  recipientHint?: { kind: "email" | "address"; value: string };
+  /** "send the MON to bob" — a name with no way to find its owner */
+  nameHint?: string;
 }
 
 /** The document that gets hashed, published, and checked against the chain. */
@@ -59,6 +63,13 @@ export interface Policy {
   allowedTargets: string[];
   /** passed to the agent as instructions; never enforced */
   advisory: string[];
+  /**
+   * Who the capsule is for, as an address, lowercased. Hashed with everything
+   * else and checked against capsule.principal, because in "send the MON to
+   * bob" the recipient is the term that matters most — and it was the one term
+   * the badge did not check. An email shown alongside is a label, not a fact.
+   */
+  recipient: string;
   /** keccak of the canonical document; filled in by `withHash` */
   policyHash?: string;
 }

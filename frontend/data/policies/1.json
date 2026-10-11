@@ -51,10 +51,10 @@
       "because": "Any other venue is refused as TARGET_NOT_ALLOWED, whatever calldata the agent supplies."
     },
     {
-      "text": "sends the proceeds to the recipient",
+      "text": "sends the proceeds to 0x0000…0b0b",
       "verdict": "enforced",
-      "boundTo": "beneficiaryMode",
-      "because": "Checked against the request on every spend, so the agent cannot pay itself."
+      "boundTo": "principal",
+      "because": "Named at mint and checked on every spend, so the agent cannot pay itself — and checked against this document, so nobody can swap who it is for."
     }
   ],
   "bounds": {
@@ -64,8 +64,8 @@
     "totalCap": "150000000",
     "windows": 30,
     "windowLength": 86400,
-    "notBefore": 1791830822,
-    "expiresAt": 1794422822,
+    "notBefore": 1791871638,
+    "expiresAt": 1794463638,
     "maxSlippageBps": 100
   },
   "assetIn": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
@@ -75,5 +75,6 @@
   "allowedTargets": [
     "0x065C9d28E428A0db40191a54d33d5b7c71a9C394"
   ],
-  "advisory": []
+  "advisory": [],
+  "recipient": "0x0000000000000000000000000000000000000b0b"
 }

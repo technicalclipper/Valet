@@ -10,7 +10,9 @@ const NOW = 1_700_000_000;
 const SENTENCE = "Buy 5 USDC of MON daily for 30 days, max 1% slippage, send the MON to bob";
 
 async function policy(): Promise<Policy> {
-  const r = compile(SENTENCE, await extractWithRules(SENTENCE), NOW);
+  const r = compile(SENTENCE, await extractWithRules(SENTENCE), NOW, {
+    recipient: "0x0000000000000000000000000000000000000b0b",
+  });
   return r.policy!;
 }
 
@@ -49,7 +51,7 @@ describe("a faithful capsule", () => {
     expect(v.verified).toBe(true);
     expect(v.hashMatches).toBe(true);
     expect(v.failures).toHaveLength(0);
-    expect(v.fields).toHaveLength(12);
+    expect(v.fields).toHaveLength(13);
     expect(verdictLine(v)).toMatch(/Verified/);
   });
 });
@@ -106,6 +108,28 @@ describe("the attack a hash check alone cannot catch", () => {
     const v = verifyCapsule(p, capsuleFor(p, { bounds: { ...base.bounds, windows: 3 } }));
     expect(v.verified).toBe(false);
     expect(v.failures.map((f) => f.field)).toContain("windows");
+  });
+});
+
+describe("who it is for", () => {
+  /**
+   * The gap this closes: the recipient was not hashed and not checked, so a
+   * capsule minted for someone else entirely still showed "verified".
+   */
+  it("catches a capsule minted for a different recipient", async () => {
+    const p = await policy();
+    const v = verifyCapsule(p, capsuleFor(p, { principal: "0x000000000000000000000000000000000000beef" }));
+    expect(v.hashMatches).toBe(true); // the document is genuine
+    expect(v.verified).toBe(false); // but it is not for the person it names
+    expect(v.failures.map((f) => f.field)).toEqual(["recipient"]);
+  });
+
+  it("is part of the hash, so a link cannot swap it either", async () => {
+    const a = await policy();
+    const b = compile(SENTENCE, await extractWithRules(SENTENCE), NOW, {
+      recipient: "0x000000000000000000000000000000000000beef",
+    }).policy!;
+    expect(policyHash(a)).not.toBe(policyHash(b));
   });
 });
 

@@ -14,6 +14,9 @@ export function Header() {
           </span>
         </Link>
         <div className="flex items-center gap-2.5">
+          <Link href="/me" className="hidden whitespace-nowrap font-mono text-[11px] text-text-dim transition hover:text-text sm:inline">
+            your capsules
+          </Link>
           <ChainBadge />
           <AccountChip />
         </div>

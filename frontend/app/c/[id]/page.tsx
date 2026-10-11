@@ -4,6 +4,7 @@ import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
 import { AgentConsole } from "../../components/AgentConsole";
 import { CapsuleActions } from "../../components/CapsuleActions";
+import { RememberLink } from "../../components/RememberLink";
 import { Proof } from "../../components/Proof";
 import { ChecksList } from "../../components/ChecksList";
 import { decodeSentence, loadPolicy } from "../../../lib/policy/store";
@@ -35,9 +36,10 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   // the capsule's own notBefore reproduces the document without anyone having
   // stored it — and the hash check then has nothing to trust but the chain.
   const linked = typeof query.s === "string" ? decodeSentence(query.s) : null;
+  const linkedRecipient = typeof query.r === "string" && /^0x[0-9a-fA-F]{40}$/.test(query.r) ? query.r : undefined;
   const policy = await loadPolicy(
     id,
-    linked ? { sentence: linked, notBefore: Number(capsule.bounds.notBefore) } : undefined,
+    linked ? { sentence: linked, notBefore: Number(capsule.bounds.notBefore), recipient: linkedRecipient } : undefined,
   );
   const [vault, head] = await Promise.all([readVault(capsule.vaultId), readHeadroom(capsuleId)]);
   const verification = policy ? verifyCapsule(policy, capsule) : null;
@@ -109,6 +111,7 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
   return (
     <>
       <Header />
+      <RememberLink capsuleId={id} sentence={linked ?? undefined} recipient={linkedRecipient} />
       <main className="min-h-screen">
         {/* --- the answer ------------------------------------------------ */}
         <section className="relative isolate overflow-hidden border-b border-white/[0.06]">

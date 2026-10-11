@@ -23,11 +23,15 @@ import type { Policy } from "./types";
  */
 export async function loadPolicy(
   capsuleId: bigint | string,
-  fromLink?: { sentence?: string; notBefore?: number },
+  fromLink?: { sentence?: string; notBefore?: number; recipient?: string },
 ): Promise<Policy | null> {
   if (fromLink?.sentence && fromLink.notBefore !== undefined) {
     const sentence = fromLink.sentence;
-    const result = compile(sentence, await extractWithRules(sentence), fromLink.notBefore);
+    // The recipient comes from the link, not the chain: reading it from the
+    // capsule would compare the chain with itself and prove nothing.
+    const result = compile(sentence, await extractWithRules(sentence), fromLink.notBefore, {
+      recipient: fromLink.recipient,
+    });
     if (result.ok && result.policy) return result.policy;
     return null;
   }
