@@ -84,7 +84,10 @@ function Cover() {
         Trust an agent with money —<br />
         <span className="text-text-dim">without handing it your keys.</span>
       </p>
-      <div className="deck-in mt-8 flex flex-wrap justify-center gap-2" style={d(520)}>
+      <p className="deck-in mt-5 max-w-xl text-balance font-mono text-[clamp(0.8rem,1.4vw,0.95rem)] leading-relaxed text-peri" style={d(440)}>
+        shareable links that let an AI agent act on your behalf — within the limits you set.
+      </p>
+      <div className="deck-in mt-8 flex flex-wrap justify-center gap-2" style={d(600)}>
         <Chip tone="good"><span className="pulse-live h-1.5 w-1.5 rounded-full bg-enforced" /> live on monad mainnet</Chip>
         <Chip tone="peri">trades on Kuru</Chip>
         <Chip tone="peri">keys by Privy</Chip>
