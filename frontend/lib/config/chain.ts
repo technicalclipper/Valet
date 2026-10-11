@@ -15,7 +15,7 @@ export const chain = {
   /** shown in the header, so a demo video can never pass a fork off as mainnet */
   label: process.env.NEXT_PUBLIC_CHAIN_LABEL ?? "local fork",
   isMainnet: (process.env.NEXT_PUBLIC_CHAIN_LABEL ?? "") === "Monad mainnet",
-  explorer: process.env.NEXT_PUBLIC_EXPLORER_URL ?? "https://monadexplorer.com",
+  explorer: process.env.NEXT_PUBLIC_EXPLORER_URL ?? "https://monadvision.com",
   /**
    * Block the Valet contract was deployed at. Log queries start here rather
    * than at 0: on a fork, anything before the fork point has to be fetched from

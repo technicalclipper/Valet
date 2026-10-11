@@ -27,7 +27,7 @@ async function main() {
 
   // imported only after configure(): these read the chain from the environment as they load
   const [{ preflight, readBeneficiary, readCapsule, readEscalation, readHeadroom }, runtime, { addresses, chain: cfg },
-    { amount, duration, ASSERT_LABEL }, { serverAccount }, { publicClient }, { valetAbi }] = await Promise.all([
+    { amount, duration, ASSERT_LABEL }, { serverAccount }, { publicClient }, { valetAbi }, { links }] = await Promise.all([
     import("../lib/chain/reads"),
     import("../lib/agent/runtime"),
     import("../lib/config/chain"),
@@ -35,6 +35,7 @@ async function main() {
     import("../lib/server/keys"),
     import("../lib/chain/client"),
     import("../lib/chain/abi"),
+    import("../lib/config/links"),
   ]);
 
   const id = BigInt(capsuleId);
@@ -148,8 +149,9 @@ async function main() {
     });
     if (!r.started) return text(`Not started: ${r.reason}.`);
     if (r.outcome === "executed")
-      return text(`Executed. ${amount(BigInt(r.received!), 18, "MON")} went to the recipient. Transaction ${r.txHash}` +
-        (cfg.isMainnet ? ` — ${cfg.explorer}/tx/${r.txHash}` : ` (on ${cfg.label}).`));
+      return text(`Executed on Kuru. ${amount(BigInt(r.received!), 18, "MON")} went to the recipient. Transaction ${r.txHash}` +
+        (links.tx(r.txHash!) ? ` — ${links.tx(r.txHash!)}` : ` (on ${cfg.label}, not on a public explorer).`) +
+        ` Market: ${links.kuruTrade}`);
     if (r.outcome === "refused") return text(`Refused by the contract: ${explain(r.refusedBy!)}. No transaction was sent, nothing moved.`);
     return { ...text(`The trade did not complete: ${r.error}`), isError: true };
   });

@@ -127,7 +127,8 @@ describe("an outside agent, through MCP", () => {
     const { publicClient } = await import("../lib/chain/client");
     const before = await publicClient.getBalance({ address: issuer.address });
     const t = await call("valet_trade");
-    expect(t).toMatch(/^Executed\. [\d.]+ MON went to the recipient/);
+    expect(t).toMatch(/^Executed on Kuru\. [\d.]+ MON went to the recipient/);
+    expect(t).toContain("kuru.io/markets/0x065c9d28e428a0db40191a54d33d5b7c71a9c394/trade");
     expect(await publicClient.getBalance({ address: issuer.address })).toBeGreaterThan(before);
   }, 30_000);
 

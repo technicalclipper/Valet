@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Header } from "../../components/Header";
 import { CapMeter } from "../../components/CapMeter";
 import { AgentConsole } from "../../components/AgentConsole";
+import { links } from "../../../lib/config/links";
 import { CapsuleActions } from "../../components/CapsuleActions";
 import { RememberLink } from "../../components/RememberLink";
 import { Proof } from "../../components/Proof";
@@ -339,14 +340,27 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                   <li key={`${h.txHash}-${i}`} className="rule flex flex-wrap items-baseline gap-x-3 border-l pl-3">
                     <span className="font-medium" style={{ color: "#5b45a8" }}>{h.kind}</span>
                     <span className="font-mono text-[11px] on-card-faint">block {h.blockNumber.toString()}</span>
-                    <a
-                      href={`${chain.explorer}/tx/${h.txHash}`}
-                      className="ml-auto font-mono text-[11px] on-card-faint underline decoration-dotted"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {shortAddress(h.txHash)}
-                    </a>
+                    {h.kind === "Executed" && (
+                      <a href={links.kuruTrade} target="_blank" rel="noreferrer"
+                        className="font-mono text-[11px] underline decoration-dotted" style={{ color: "#5b45a8" }}>
+                        on Kuru ↗
+                      </a>
+                    )}
+                    {links.tx(h.txHash) ? (
+                      <a
+                        href={links.tx(h.txHash)}
+                        className="ml-auto font-mono text-[11px] on-card-faint underline decoration-dotted"
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`view on ${links.explorerName}`}
+                      >
+                        {shortAddress(h.txHash)} ↗
+                      </a>
+                    ) : (
+                      <span className="ml-auto font-mono text-[11px] on-card-faint" title="a local fork transaction — on no public explorer">
+                        {shortAddress(h.txHash)}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ol>
@@ -362,7 +376,15 @@ export default async function CapsulePage(props: PageProps<"/c/[id]">) {
                 ].map(([k, v]) => (
                   <div key={k}>
                     <dt className="eyebrow">{k}</dt>
-                    <dd className="mt-0.5 font-mono text-[11px] on-card-dim">{v.startsWith("0x") ? shortAddress(v) : v}</dd>
+                    <dd className="mt-0.5 font-mono text-[11px] on-card-dim">
+                      {k === "venue" ? (
+                        <a href={links.kuruTrade} target="_blank" rel="noreferrer" className="underline decoration-dotted">
+                          {links.kuruLabel} · {shortAddress(v)} ↗
+                        </a>
+                      ) : v.startsWith("0x") && links.address(v) ? (
+                        <a href={links.address(v)} target="_blank" rel="noreferrer" className="underline decoration-dotted">{shortAddress(v)} ↗</a>
+                      ) : v.startsWith("0x") ? shortAddress(v) : v}
+                    </dd>
                   </div>
                 ))}
               </dl>

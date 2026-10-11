@@ -6,10 +6,11 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { STEPS, type AgentEvent, type StepId } from "../../lib/agent/types";
 import { ASSERT_GROUPS } from "../../lib/chain/reads";
 import { ASSERT_LABEL } from "../../lib/format";
+import { links } from "../../lib/config/links";
 
 type StageState = "pending" | "active" | "done" | "refused";
 type Flow = "idle" | "vault" | "toKuru" | "swapped" | "toValet" | "toRecipient" | "landed" | "blocked";
-interface Line { t: number; step: string; text: string; detail?: string; tone: "info" | "good" | "bad" | "dim" }
+interface Line { t: number; step: string; text: string; detail?: string; tx?: string; tone: "info" | "good" | "bad" | "dim" }
 
 const FLAT: string[] = ASSERT_GROUPS.flatMap((g) => g.members);
 const freshStages = (): Record<StepId, StageState> =>
@@ -70,6 +71,8 @@ export function AgentConsole({
   const [busy, setBusy] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /** the last trade that filled, for the receipt and its links */
+  const [fill, setFill] = useState<{ tx: string; amountIn?: string; received?: string; by?: string } | null>(null);
 
   const queue = useRef<AgentEvent[]>([]);
   const playing = useRef(false);
@@ -82,6 +85,7 @@ export function AgentConsole({
     const d = (ms: number) => sleep(ms * speed.current);
 
     if (e.kind === "run-start") {
+      setFill(null);
       setStages(freshStages());
       setFlow("idle");
       setLit(0);
@@ -103,6 +107,7 @@ export function AgentConsole({
 
     if (e.kind === "run-end") {
       setOutcome(e.outcome ?? null);
+      if (e.outcome === "executed" && e.txHash) setFill((f) => ({ ...f, tx: e.txHash! }));
       say({ step: "agent", text: e.title, detail: e.detail, tone: e.outcome === "executed" ? "good" : e.outcome === "refused" ? "bad" : "bad" });
       setBusy(false);
       router.refresh(); // the meters and history are server-rendered; let them catch up
@@ -133,6 +138,7 @@ export function AgentConsole({
 
     // done
     if (e.data) setNums((n) => ({ ...n, ...e.data }));
+    if (step === "settle" && e.data?.received) setFill((f) => ({ ...f, tx: e.txHash ?? f?.tx ?? "", received: e.data!.received }));
     if (step === "policy") setFlow("vault");
 
     if (step === "preflight") {
@@ -143,7 +149,7 @@ export function AgentConsole({
     }
 
     setStages((s) => ({ ...s, [step]: "done" }));
-    say({ step, text: e.title, detail: e.detail, tone: step === "settle" ? "good" : "info" });
+    say({ step, text: e.title, detail: e.detail, tx: e.txHash, tone: step === "settle" ? "good" : "info" });
 
     if (step === "execute") {
       setFlow("toKuru");
@@ -368,15 +374,19 @@ export function AgentConsole({
             const tone = name === "recipient" && flow === "landed" ? "var(--enforced)" : name === "vault" && flow === "blocked" ? "var(--refused)" : "var(--peri)";
             return (
               <div key={name} className="absolute top-0 flex w-[22%] -translate-x-1/2 flex-col items-center" style={{ left: `${x}%` }}>
-                <div
+                <a
+                  href={name === "Kuru" ? links.kuruTrade : undefined}
+                  target={name === "Kuru" ? "_blank" : undefined}
+                  rel="noreferrer"
+                  title={name === "Kuru" ? `Open ${links.kuruLabel}` : undefined}
                   className={`grid h-[48px] w-full max-w-[120px] place-items-center rounded-lg border-2 bg-[#16161c] px-1 transition-all duration-300 sm:h-[60px] sm:px-2 ${name === "recipient" && flow === "landed" ? "land" : ""}`}
                   style={{ borderColor: hot ? tone : "rgb(255 255 255 / 0.12)", boxShadow: hot ? `0 0 18px ${tone === "var(--enforced)" ? "rgb(178 255 166 / 0.35)" : tone === "var(--refused)" ? "rgb(253 121 174 / 0.4)" : "rgb(194 181 255 / 0.3)"}` : "none" }}
                 >
                   <div className="text-center">
-                    <div className="text-[11px] font-semibold text-text sm:text-[13px]">{name}</div>
+                    <div className="text-[11px] font-semibold text-text sm:text-[13px]">{name}{name === "Kuru" && <span className="text-text-faint"> ↗</span>}</div>
                     <div className="mt-0.5 hidden truncate font-mono text-[10px] text-text-faint sm:block">{value}</div>
                   </div>
-                </div>
+                </a>
                 <span className="mt-1.5 hidden font-mono text-[9px] text-text-faint sm:block">{sub}</span>
               </div>
             );
@@ -429,6 +439,33 @@ export function AgentConsole({
           <p className="mt-1 text-center font-mono text-[11px] uppercase tracking-[0.14em] sm:hidden" style={{ color: "var(--refused)" }}>
             nothing moved
           </p>
+        )}
+
+        {/* the receipt: where the trade happened, and where to check it */}
+        {fill && outcome === "executed" && (
+          <div className="row-in mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border px-3 py-2.5" style={{ borderColor: "rgb(178 255 166 / 0.35)", background: "rgb(178 255 166 / 0.06)" }}>
+            <span className="font-mono text-[12px]" style={{ color: "var(--enforced)" }}>
+              ✓ filled on Kuru{fill.received ? ` · ${short(fill.received, 18, "MON", 4)} to the recipient` : ""}
+            </span>
+            <span className="ml-auto flex flex-wrap gap-2">
+              <a href={links.kuruTrade} target="_blank" rel="noreferrer"
+                className="rounded-full border px-3 py-1 font-mono text-[11px] transition hover:bg-white/5"
+                style={{ borderColor: "rgb(194 181 255 / 0.5)", color: "var(--peri)" }}>
+                {links.kuruLabel} ↗
+              </a>
+              {links.tx(fill.tx) ? (
+                <a href={links.tx(fill.tx)} target="_blank" rel="noreferrer"
+                  className="rounded-full border px-3 py-1 font-mono text-[11px] transition hover:bg-white/5"
+                  style={{ borderColor: "rgb(178 255 166 / 0.5)", color: "var(--enforced)" }}>
+                  the transaction on {links.explorerName} ↗
+                </a>
+              ) : (
+                <span className="px-1 py-1 font-mono text-[11px] text-text-faint" title={fill.tx}>
+                  local fork · not on a public explorer
+                </span>
+              )}
+            </span>
+          </div>
         )}
 
         {/* readouts + the nineteen */}
@@ -491,6 +528,13 @@ export function AgentConsole({
                 {l.text}
               </span>
               {l.detail && <div className="pl-4 text-text-faint sm:pl-[8.5rem]">{/^0x[0-9a-f]{40,}$/i.test(l.detail) ? `${l.detail.slice(0, 18)}…${l.detail.slice(-6)}` : l.detail}</div>}
+              {l.tx && links.tx(l.tx) && (
+                <div className="pl-4 sm:pl-[8.5rem]">
+                  <a href={links.tx(l.tx)} target="_blank" rel="noreferrer" className="underline decoration-dotted" style={{ color: "var(--peri)" }}>
+                    view on {links.explorerName} ↗
+                  </a>
+                </div>
+              )}
             </div>
           ))}
           <div ref={logEnd} />
