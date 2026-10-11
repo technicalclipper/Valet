@@ -1,12 +1,7 @@
-import { getAddress, parseAbiItem, type Address } from "viem";
+import { getAddress, type Address } from "viem";
 import { publicClient } from "./client";
+import { logs } from "./eventIndex";
 import { readCapsule, readHeadroom, readVault, type OnChainCapsule } from "./reads";
-import { chain as cfg, valetAddress } from "../config/chain";
-
-const VaultOpened = parseAbiItem("event VaultOpened(uint256 indexed vaultId, address indexed issuer, address asset)");
-const CapsuleMinted = parseAbiItem(
-  "event CapsuleMinted(uint256 indexed capsuleId, uint256 indexed vaultId, address indexed principal, bytes32 policyHash, uint8 mode)",
-);
 
 export type Status = "running" | "waiting" | "paused" | "ended";
 
@@ -27,28 +22,23 @@ export interface MyCapsule {
  *
  * No index of our own: what you sent is the capsules minted against vaults you
  * opened, and what you receive is the capsules minted with you as principal.
- * Both events index those fields, so this is two or three log queries, not a
- * scan. A server that kept its own list could forget one; the chain cannot.
+ * Both come from the server's event index — a copy of the chain's logs, read in
+ * ranges the RPC will serve — so this runs on the server and /api/mine serves it.
  */
 export async function findMine(who: Address): Promise<MyCapsule[]> {
   // An address typed or pasted by a person can have checksum casing that does
   // not match — viem rejects those outright. Lowercasing first and recomputing
   // the checksum accepts any spelling of a valid address.
   const me = getAddress(who.toLowerCase());
-  const address = valetAddress();
-  const fromBlock = cfg.deployBlock;
-
   const [opened, forMe] = await Promise.all([
-    publicClient.getLogs({ address, event: VaultOpened, args: { issuer: me }, fromBlock }),
-    publicClient.getLogs({ address, event: CapsuleMinted, args: { principal: me }, fromBlock }),
+    logs({ eventName: "VaultOpened", args: { issuer: me } }),
+    logs({ eventName: "CapsuleMinted", args: { principal: me } }),
   ]);
-  const myVaults = opened.map((l) => l.args.vaultId!).filter((v) => v !== undefined);
-  const fromMyVaults = myVaults.length
-    ? await publicClient.getLogs({ address, event: CapsuleMinted, args: { vaultId: myVaults }, fromBlock })
-    : [];
+  const myVaults = opened.map((l) => l.args.vaultId as bigint);
+  const fromMyVaults = myVaults.length ? await logs({ eventName: "CapsuleMinted", args: { vaultId: myVaults } }) : [];
 
   const ids = new Set<string>();
-  for (const l of [...forMe, ...fromMyVaults]) ids.add(l.args.capsuleId!.toString());
+  for (const l of [...forMe, ...fromMyVaults]) ids.add(String(l.args.capsuleId));
 
   const now = BigInt((await publicClient.getBlock()).timestamp);
   const rows = await Promise.all(

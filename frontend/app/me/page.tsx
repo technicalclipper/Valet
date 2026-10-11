@@ -6,7 +6,8 @@ import { getAddress } from "viem";
 import { usePrivy } from "@privy-io/react-auth";
 import { Header } from "../components/Header";
 import { useControls } from "../components/useControls";
-import { findMine, type MyCapsule, type Status } from "../../lib/chain/mine";
+import type { MyCapsule, Status } from "../../lib/chain/mine";
+import { fromJson } from "../../lib/json";
 import { linkFor, readLinks, type KnownLink } from "../../lib/links";
 import { amount, cadence } from "../../lib/format";
 
@@ -39,7 +40,12 @@ export default function MinePage() {
   const load = useCallback(async (me: `0x${string}`) => {
     setError(null);
     try {
-      setRows(await findMine(me));
+      // the server reads the chain's events for us: the public RPC serves logs
+      // a hundred blocks at a time, too few to search from a browser
+      const r = await fetch(`/api/mine?address=${me}`);
+      const body = await r.text();
+      if (!r.ok) throw new Error(fromJson<{ error?: string }>(body).error ?? "Could not read your capsules.");
+      setRows(fromJson<MyCapsule[]>(body));
     } catch (e) {
       setError((e as Error).message);
     }

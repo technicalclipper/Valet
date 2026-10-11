@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
-import { parseAbiItem, type Address } from "viem";
+import type { Address } from "viem";
 import { valetAbi } from "../../lib/chain/abi";
 import { publicClient } from "../../lib/chain/client";
-import { chain as cfg } from "../../lib/config/chain";
+import type { HistoryEntry } from "../../lib/chain/events";
+import { fromJson } from "../../lib/json";
 import { amount } from "../../lib/format";
 import { useControls } from "./useControls";
 
@@ -87,13 +88,10 @@ export function CapsuleActions(p: Props) {
       address: p.valet, abi: valetAbi, functionName: "getEscalation", args: [id, nonce],
     })) as unknown as { requestedAmount: bigint; requested: boolean; approved: boolean; consumed: boolean };
     if (!e.requested || e.approved || e.consumed) return setAsk(null);
-    const logs = await publicClient.getLogs({
-      address: p.valet,
-      event: parseAbiItem("event EscalationRequested(uint256 indexed capsuleId, uint256 indexed nonce, uint256 amount, string reason)"),
-      args: { capsuleId: id, nonce },
-      fromBlock: cfg.deployBlock,
-    }).catch(() => []);
-    setAsk({ nonce, amount: e.requestedAmount, reason: (logs[0]?.args.reason as string) ?? "" });
+    // the reason lives only in the event; the server's index has it
+    const history = await fetch(`/api/capsule/${p.capsuleId}/history`).then((r) => r.text()).then(fromJson<HistoryEntry[]>).catch(() => []);
+    const asked = history.find((h) => h.kind === "EscalationRequested" && h.detail.nonce === nonce.toString());
+    setAsk({ nonce, amount: e.requestedAmount, reason: asked?.detail.reason ?? "" });
   }, [isIssuer, p.capsuleId, p.valet, p.ended]);
 
   useEffect(() => {

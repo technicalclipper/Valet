@@ -1,7 +1,8 @@
-import { parseAbiItem, type Address } from "viem";
+import type { Address } from "viem";
 import { publicClient } from "../chain/client";
 import { preflight, readBeneficiary, readCapsule, readHeadroom } from "../chain/reads";
-import { addresses, chain as cfg, valetAddress } from "../config/chain";
+import { indexedThrough, logs } from "../chain/eventIndex";
+import { addresses, chain as cfg } from "../config/chain";
 import { serverAccount } from "../server/keys";
 import { amount } from "../format";
 import { publish } from "./bus";
@@ -24,17 +25,11 @@ import { quote, runOnce } from "./runtime";
  * It decides nothing the contract does not. Every run it starts goes through the
  * same nineteen checks as a press of the button; the keeper only chooses when.
  */
-const claimed = parseAbiItem(
-  "event CapsuleClaimed(uint256 indexed capsuleId, address indexed holder, address indexed by)",
-);
-const executed = parseAbiItem(
-  "event Executed(uint256 indexed capsuleId, address indexed holder, address indexed target, uint256 amountIn, uint256 received, address beneficiary)",
-);
 
 interface State {
   /** capsule id → the window index it was claimed in */
   held: Map<string, bigint>;
-  /** next block to scan for claims */
+  /** next block to look at for claims */
   cursor: bigint;
   /** next block to scan for trades by agents we did not write; unset until the first tick */
   outsideCursor?: bigint;
@@ -46,7 +41,6 @@ const g = globalThis as unknown as { __valetKeeper?: State };
 const state: State = (g.__valetKeeper ??= { held: new Map(), cursor: cfg.deployBlock, quiet: new Map(), ticking: false });
 
 const RETRY_REFUSED_MS = 5 * 60_000;
-const SCAN_CHUNK = 5_000n;
 
 export interface TickResult {
   /** another tick was already running, so this one looked at nothing */
@@ -56,24 +50,19 @@ export interface TickResult {
   skipped: Record<string, string>;
 }
 
-/** New claims to the agent since the last scan, in chunks an RPC will serve. */
+/** New claims to the agent since the last look, from the server's event index. */
 async function scanClaims(agent: Address) {
-  const head = await publicClient.getBlockNumber();
-  while (state.cursor <= head) {
-    const to = state.cursor + SCAN_CHUNK - 1n < head ? state.cursor + SCAN_CHUNK - 1n : head;
-    const logs = await publicClient.getLogs({
-      address: valetAddress(), event: claimed, args: { holder: agent }, fromBlock: state.cursor, toBlock: to,
-    });
-    for (const l of logs) {
-      const id = l.args.capsuleId!.toString();
-      const c = await readCapsule(l.args.capsuleId!);
-      const at = (await publicClient.getBlock({ blockNumber: l.blockNumber })).timestamp;
-      const b = c.bounds;
-      const idx = at < b.notBefore ? -1n : (at - b.notBefore) / b.windowLength;
-      state.held.set(id, idx);
-    }
-    state.cursor = to + 1n;
+  const found = await logs({ eventName: "CapsuleClaimed", args: { holder: agent }, afterBlock: state.cursor - 1n });
+  // read now, before any await below lets another sync move the index on
+  const through = indexedThrough();
+  for (const l of found) {
+    const cid = l.args.capsuleId as bigint;
+    const c = await readCapsule(cid);
+    const at = (await publicClient.getBlock({ blockNumber: l.blockNumber })).timestamp;
+    const b = c.bounds;
+    state.held.set(cid.toString(), at < b.notBefore ? -1n : (at - b.notBefore) / b.windowLength);
   }
+  state.cursor = through + 1n;
 }
 
 /**
@@ -86,18 +75,14 @@ async function scanClaims(agent: Address) {
  * and history is already on the capsule page.
  */
 async function announceOutsiders(agent: Address) {
-  const head = await publicClient.getBlockNumber();
   if (state.outsideCursor === undefined) {
-    state.outsideCursor = head + 1n;
+    state.outsideCursor = indexedThrough() + 1n;
     return;
   }
-  if (state.outsideCursor > head) return;
-  const logs = await publicClient.getLogs({
-    address: valetAddress(), event: executed, fromBlock: state.outsideCursor, toBlock: head,
-  });
-  state.outsideCursor = head + 1n;
-  for (const l of logs) {
-    const a = l.args;
+  const found = await logs({ eventName: "Executed", afterBlock: state.outsideCursor - 1n });
+  state.outsideCursor = indexedThrough() + 1n;
+  for (const l of found) {
+    const a = l.args as { capsuleId: bigint; holder: Address; amountIn: bigint; received: bigint; beneficiary: Address };
     if (a.holder!.toLowerCase() === agent.toLowerCase()) continue;
     const cid = a.capsuleId!.toString();
     const runId = `${cid}-outside-${l.transactionHash.slice(2, 10)}`;

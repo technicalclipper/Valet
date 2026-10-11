@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# the event index is a cache of the chain, rebuilt on demand
+/data/index/
