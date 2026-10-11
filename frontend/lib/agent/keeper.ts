@@ -3,6 +3,8 @@ import { publicClient } from "../chain/client";
 import { preflight, readBeneficiary, readCapsule, readHeadroom } from "../chain/reads";
 import { addresses, chain as cfg, valetAddress } from "../config/chain";
 import { serverAccount } from "../server/keys";
+import { amount } from "../format";
+import { publish } from "./bus";
 import { quote, runOnce } from "./runtime";
 
 /**
@@ -25,18 +27,23 @@ import { quote, runOnce } from "./runtime";
 const claimed = parseAbiItem(
   "event CapsuleClaimed(uint256 indexed capsuleId, address indexed holder, address indexed by)",
 );
+const executed = parseAbiItem(
+  "event Executed(uint256 indexed capsuleId, address indexed holder, address indexed target, uint256 amountIn, uint256 received, address beneficiary)",
+);
 
 interface State {
   /** capsule id → the window index it was claimed in */
   held: Map<string, bigint>;
   /** next block to scan for claims */
   cursor: bigint;
+  /** next block to scan for trades by agents we did not write; unset until the first tick */
+  outsideCursor?: bigint;
   /** `${id}:${window}` → when we last found it refused, so we do not ask every tick */
   quiet: Map<string, number>;
   ticking: boolean;
 }
 const g = globalThis as unknown as { __valetKeeper?: State };
-const state = (g.__valetKeeper ??= { held: new Map(), cursor: cfg.deployBlock, quiet: new Map(), ticking: false });
+const state: State = (g.__valetKeeper ??= { held: new Map(), cursor: cfg.deployBlock, quiet: new Map(), ticking: false });
 
 const RETRY_REFUSED_MS = 5 * 60_000;
 const SCAN_CHUNK = 5_000n;
@@ -69,6 +76,52 @@ async function scanClaims(agent: Address) {
   }
 }
 
+/**
+ * Trades by agents Valet did not write — an MCP client, a script, anything
+ * holding a capsule — happen without this server, so they never reach the
+ * console on their own. They do reach the chain. Each Executed event from a
+ * holder other than the managed agent is replayed into that capsule's console,
+ * so issuer and recipient watch an outside agent the same way they watch ours.
+ * Starts from the first tick, not from the deploy block: this is a live feed,
+ * and history is already on the capsule page.
+ */
+async function announceOutsiders(agent: Address) {
+  const head = await publicClient.getBlockNumber();
+  if (state.outsideCursor === undefined) {
+    state.outsideCursor = head + 1n;
+    return;
+  }
+  if (state.outsideCursor > head) return;
+  const logs = await publicClient.getLogs({
+    address: valetAddress(), event: executed, fromBlock: state.outsideCursor, toBlock: head,
+  });
+  state.outsideCursor = head + 1n;
+  for (const l of logs) {
+    const a = l.args;
+    if (a.holder!.toLowerCase() === agent.toLowerCase()) continue;
+    const cid = a.capsuleId!.toString();
+    const runId = `${cid}-outside-${l.transactionHash.slice(2, 10)}`;
+    const say = (e: Omit<Parameters<typeof publish>[1], "runId">) => publish(cid, { ...e, runId });
+    const who = `${a.holder!.slice(0, 6)}…${a.holder!.slice(-4)}`;
+    say({ kind: "run-start", title: `An outside agent traded — ${who}, one Valet never wrote`, data: { trigger: "outside", agent: a.holder! } });
+    say({
+      kind: "step", step: "policy", status: "done", title: "It holds the capsule, and nothing more",
+      detail: "the same permission, read from the same chain",
+      data: { amountIn: a.amountIn!.toString(), recipient: a.beneficiary! },
+    });
+    say({ kind: "step", step: "preflight", status: "done", title: "All nineteen checks passed, inside its own transaction" });
+    say({ kind: "step", step: "execute", status: "done", title: `Spent ${amount(a.amountIn!)} on Kuru`, txHash: l.transactionHash, detail: l.transactionHash });
+    say({
+      kind: "step", step: "settle", status: "done",
+      title: `${amount(a.received!, 18, "MON")} landed with the recipient`,
+      detail: "read back from the chain's Executed event — this server never touched the trade",
+      txHash: l.transactionHash,
+      data: { received: a.received!.toString(), recipient: a.beneficiary! },
+    });
+    say({ kind: "run-end", outcome: "executed", title: "Every limit held for it too", txHash: l.transactionHash });
+  }
+}
+
 export async function tick(): Promise<TickResult> {
   const out: TickResult = { watched: 0, started: [], skipped: {} };
   if (state.ticking) return { ...out, busy: true };
@@ -76,6 +129,7 @@ export async function tick(): Promise<TickResult> {
   try {
     const agent = serverAccount("AGENT_PRIVATE_KEY");
     await scanClaims(agent.address);
+    await announceOutsiders(agent.address);
     const now = BigInt((await publicClient.getBlock()).timestamp);
 
     for (const [id, claimWindow] of state.held) {

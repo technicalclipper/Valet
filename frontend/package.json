@@ -9,9 +9,11 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "abi": "bash ../scripts-abi.sh"
+    "abi": "bash ../scripts-abi.sh",
+    "mcp": "tsx mcp/server.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@privy-io/react-auth": "^3.48.0",
     "@stripe/crypto": "^1.1.3",
     "@stripe/stripe-js": "^10.0.0",
@@ -19,7 +21,8 @@
     "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "viem": "^2.57.3"
+    "viem": "^2.57.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -29,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "vite": "^8.3.3",
     "vitest": "^5.0.3"

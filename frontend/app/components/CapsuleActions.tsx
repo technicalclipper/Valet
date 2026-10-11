@@ -194,7 +194,7 @@ export function CapsuleActions(p: Props) {
             <input type="radio" checked={holderChoice === "other"} onChange={() => setHolderChoice("other")} className="mt-1" />
             <span className="w-full">
               <span className="font-semibold on-card">Another agent or key</span>
-              <span className="on-card-faint"> — one we never wrote; every limit holds the same.</span>
+              <span className="on-card-faint"> — one we never wrote, like Claude through Valet&apos;s MCP server; every limit holds the same.</span>
               {holderChoice === "other" && (
                 <input
                   value={otherHolder}

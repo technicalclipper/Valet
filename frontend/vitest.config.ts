@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
     ]),
   ),
   test: {
-    include: ["lib/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "mcp/**/*.test.ts"],
     // The live suites share one chain. Run in parallel, one file's openVault
     // landed between another's before-and-after reads of nextVaultId and failed
     // a correct test. Seven files run fine one after another.
