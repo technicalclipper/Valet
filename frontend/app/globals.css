@@ -274,3 +274,57 @@ details.card-pop[open] {
   .sheen::after, .nudge, .pulse-live, .tick-in, .fill-bar,
   .stage-active, .stage-pop, .slam, .wall-rise, .land, .light-on, .scan::before { animation: none; }
 }
+
+/* --- the pitch deck ---------------------------------------------------
+ *
+ * Same ground, same stickers, same neon. A slide mounts fresh each time it is
+ * shown, so its pieces arrive in order — staggered by --d — rather than all at
+ * once, which is what makes a short slide feel built rather than pasted.
+ */
+@keyframes deck-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.deck-in { animation: deck-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--d, 0ms); }
+
+/* a sticker that lands a little harder than a card on a page */
+@keyframes deck-drop {
+  0% { opacity: 0; transform: translateY(-18px) rotate(var(--tilt, 0deg)) scale(1.04); }
+  70% { opacity: 1; transform: translateY(2px) rotate(var(--tilt, 0deg)); }
+  100% { opacity: 1; transform: translateY(0) rotate(var(--tilt, 0deg)); }
+}
+.deck-drop { animation: deck-drop 0.6s cubic-bezier(0.34, 1.4, 0.64, 1) both; animation-delay: var(--d, 0ms); }
+
+/* the token: USDC out of the vault, MON out of Kuru, landing with the recipient */
+@keyframes deck-travel {
+  0%, 8% { left: 9%; background: var(--peri); box-shadow: 0 0 16px rgb(194 181 255 / 0.8); }
+  30%, 38% { left: 37%; background: var(--peri); }
+  40% { background: var(--enforced); box-shadow: 0 0 16px rgb(178 255 166 / 0.9); }
+  58%, 66% { left: 64%; background: var(--enforced); }
+  88%, 100% { left: 91%; background: var(--enforced); box-shadow: 0 0 22px rgb(178 255 166 / 1); }
+}
+.deck-token { animation: deck-travel 4.2s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+
+/* a check light coming on, one after another */
+@keyframes deck-light {
+  from { background: rgb(255 255 255 / 0.1); box-shadow: none; transform: scale(0.6); }
+  60% { transform: scale(1.25); }
+  to { background: var(--enforced); box-shadow: 0 0 8px rgb(178 255 166 / 0.55); transform: scale(1); }
+}
+.deck-light { animation: deck-light 0.3s ease-out both; animation-delay: var(--d, 0ms); }
+
+/* the dashed rail between steps, drawing itself */
+@keyframes deck-rail { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.deck-rail { transform-origin: left; animation: deck-rail 0.9s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--d, 0ms); }
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-in, .deck-drop, .deck-token, .deck-light, .deck-rail { animation: none; }
+}
+
+/* the deck's edge slabs drift, slowly, the way the landing page's parallax does */
+@keyframes deck-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+.deck-float { animation: deck-float 10s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .deck-float { animation: none; } }
