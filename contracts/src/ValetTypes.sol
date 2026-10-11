@@ -109,11 +109,9 @@ struct SpendRequest {
 
 /// @notice One escalation: what the holder asked for, what the issuer signed
 ///         for, and whether it has been spent.
-/// @dev In the Move original a Permit had no `drop`, so `execute_elevated` took
-///      it by value and destroyed it — replay was not defended against, it was
-///      unrepresentable. Solidity has no equivalent, so this is a consumed flag
-///      against a per-capsule nonce. Weaker, and said plainly rather than
-///      dressed up: replay is checked here, not impossible.
+/// @dev Replay is defended by a consumed flag against a per-capsule nonce,
+///      checked before the venue is touched. Said plainly: replay is checked
+///      here, not made impossible by construction.
 struct Escalation {
     uint256 requestedAmount;
     uint256 approvedAmount;

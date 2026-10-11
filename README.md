@@ -12,18 +12,26 @@ the money, and the issuer or the recipient can stop it at any time.
 > *Buy 0.1 USDC of MON daily for 5 days, never more than 0.2 USDC in one trade,
 > max 1% slippage.*
 
-A capsule with exactly those limits is running on Monad mainnet now.
-
----
-
-## Live on Monad mainnet
+## At a glance
 
 | | |
 |---|---|
-| Valet contract | [`0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2`](https://monadvision.com/address/0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2) |
-| Deployed | block 112429973, [`0xade426…13db`](https://monadvision.com/tx/0xade426ecd3d78376648c4005b50f2881bd4b5193d45a996d54ff6ee659db13db) |
-| Venue | Kuru **MON/USDC**, market #00558: [`0x065C9d…C394`](https://www.kuru.io/markets/0x065c9d28e428a0db40191a54d33d5b7c71a9c394/trade) |
-| Asset | Circle USDC on Monad: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
+| **Network** | Monad mainnet (chain 143) |
+| **Valet contract** | [`0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2`](https://monadvision.com/address/0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2) |
+| **Trading venue** | Kuru **MON/USDC**, market #00558: [`0x065C9d28E428A0db40191a54d33d5b7c71a9C394`](https://www.kuru.io/markets/0x065c9d28e428a0db40191a54d33d5b7c71a9c394/trade) |
+| **Asset** | Circle USDC on Monad: [`0x754704Bc059F8C67012fEd69BC8A327a5aafb603`](https://monadvision.com/address/0x754704Bc059F8C67012fEd69BC8A327a5aafb603) |
+| **First Kuru trade** | 0.1 USDC → 0.03963 MON, straight to the recipient: [`0x1b9201…6bf6`](https://monadvision.com/tx/0x1b92017bd33e3c9c96a126a54877b5b51bc40132582f4ad137e35bea093e6bf6) |
+| **Approved larger trade** | The agent asked, the issuer signed, then 0.15 USDC → 0.05942 MON on Kuru: [`0x29d498…d919`](https://monadvision.com/tx/0x29d498ed2b18c64ce1ef10a0e2f555e7498c07ecee04bc1920467150815ed919) |
+| **Deployed** | block 112429973: [`0xade426…13db`](https://monadvision.com/tx/0xade426ecd3d78376648c4005b50f2881bd4b5193d45a996d54ff6ee659db13db) |
+| **Built on** | [Kuru](#kuru) for every trade · [Privy](#privy) for every person's key and signature · [MCP](#the-agent) for agents we didn't write |
+| **Enforced on chain** | [19 named checks](#the-nineteen-checks), all in one transaction with the trade |
+| **Tests** | 106 contract tests (Kuru suites on a mainnet fork) · 84 app tests, including the MCP server end to end |
+
+A capsule with exactly the limits above is running on Monad mainnet now.
+
+---
+
+## The mainnet run, step by step
 
 Capsule #1, start to finish:
 
