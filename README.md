@@ -16,6 +16,7 @@ the money, and the issuer or the recipient can stop it at any time.
 
 | | |
 |---|---|
+| **Live app** | **[valet-wheat-seven.vercel.app](https://valet-wheat-seven.vercel.app)** · pitch deck at [/deck](https://valet-wheat-seven.vercel.app/deck) · capsule #1 at [/c/1](https://valet-wheat-seven.vercel.app/c/1) |
 | **Network** | Monad mainnet (chain 143) |
 | **Valet contract** | [`0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2`](https://monadvision.com/address/0x8e77216e07cE1E4F9b5Db47621a1ef266b0d85C2) |
 | **Trading venue** | Kuru **MON/USDC**, market #00558: [`0x065C9d28E428A0db40191a54d33d5b7c71a9C394`](https://www.kuru.io/markets/0x065c9d28e428a0db40191a54d33d5b7c71a9c394/trade) |
