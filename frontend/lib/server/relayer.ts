@@ -3,6 +3,7 @@ import { valetAbi } from "../chain/abi";
 import { monad, publicClient } from "../chain/client";
 import { chain as cfg, valetAddress } from "../config/chain";
 import { serverAccount } from "./keys";
+import { inTurn } from "./sender";
 
 type RelayFn = "claimBySignature" | "principalActionBySignature" | "approveEscalation";
 
@@ -29,9 +30,9 @@ export async function relay(fn: RelayFn, args: readonly unknown[]) {
     return { ok: false as const, error: explain(err) };
   }
   const wallet = createWalletClient({ account, chain: monad, transport: http(cfg.rpcUrl) });
-  const hash = await wallet.writeContract({
+  const hash = await inTurn(account.address, () => wallet.writeContract({
     address: valetAddress(), abi: valetAbi, functionName: fn, args: args as never,
-  });
+  }));
   const rcpt = await publicClient.waitForTransactionReceipt({ hash });
   if (rcpt.status !== "success") return { ok: false as const, error: "reverted on chain", hash };
   return { ok: true as const, hash, gasUsed: rcpt.gasUsed.toString() };

@@ -89,7 +89,7 @@ export function AgentConsole({
       setNums({});
       setOutcome(null);
       setBusy(true);
-      say({ step: "agent", text: e.title, tone: "info" });
+      say({ step: e.data?.trigger === "keeper" ? "keeper" : "agent", text: e.title, tone: "info" });
       return d(450);
     }
 

@@ -108,6 +108,15 @@ async function askWhenFree(amount: string, reason: string) {
   }
 }
 
+/** A keeper pass, waiting out one already in flight (the timer, or an advance's nudge). */
+async function tickWhenFree(): Promise<{ busy?: true; skipped: Record<string, string> }> {
+  for (let i = 0; ; i++) {
+    const t = await fetch(`${APP}/api/keeper/tick`).then((r) => r.json());
+    if (!t.busy || i > 40) return t;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 async function waitFor(fn: () => Promise<boolean>, ms = 15_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 300)); }
@@ -141,6 +150,9 @@ describe("the full lifecycle, through the relayer", () => {
     const res = await post("/api/relay/claim", { capsuleId: String(capsuleId), holder: agent, deadline: String(deadline), signature });
     expect(res.ok).toBe(true);
     expect((await capsule()).holder.toLowerCase()).toBe(agent.toLowerCase());
+    // the window it was claimed in is the claimer's: the keeper leaves it alone
+    const t = await tickWhenFree();
+    expect(t.skipped[String(capsuleId)]).toMatch(/claim window/);
   }, 30_000);
 
   it("a replayed claim signature is turned away for free", async () => {
@@ -200,6 +212,18 @@ describe("the full lifecycle, through the relayer", () => {
     expect((await capsule()).spentTotal).toBe(before); // and yet nothing moved
     expect((await readEscalation(capsuleId, nonce)).consumed).toBe(false);
   }, 40_000);
+
+  it("a day passes and the keeper trades on its own, once", async () => {
+    if (!live) return;
+    const before = (await capsule()).spentTotal;
+    const adv = await post(`/api/agent/${capsuleId}/advance`, {});
+    expect(adv.ok).toBe(true);
+    // nobody wakes the agent: the advance nudges the keeper, and the timer would anyway
+    expect(await waitFor(async () => (await capsule()).spentTotal === before + 100_000n, 30_000)).toBe(true);
+    const t = await tickWhenFree();
+    expect(t.skipped[String(capsuleId)]).toMatch(/already traded/);
+    expect((await capsule()).spentTotal).toBe(before + 100_000n);
+  }, 45_000);
 
   it("a stranger's signature cannot pause it", async () => {
     if (!live) return;

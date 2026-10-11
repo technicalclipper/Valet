@@ -9,6 +9,7 @@ import {
   type Address,
 } from "viem";
 import { serverAccount } from "../server/keys";
+import { inTurn } from "../server/sender";
 import { valetAbi } from "../chain/abi";
 import { monad, publicClient } from "../chain/client";
 import { ASSERTS, preflight, readBeneficiary, readCapsule, readHeadroom } from "../chain/reads";
@@ -40,7 +41,7 @@ function agentAccount() {
  * slippage floor absorbs that, and if it cannot, Kuru's fill-or-kill refuses,
  * which is an honest outcome rather than a bad fill.
  */
-async function quote(amountIn: bigint): Promise<{ out: bigint; ask: bigint }> {
+export async function quote(amountIn: bigint): Promise<{ out: bigint; ask: bigint }> {
   const [, ask] = await publicClient.readContract({
     address: addresses.kuruMarket,
     abi: kuruAbi,
@@ -69,9 +70,11 @@ function revertName(err: unknown): string | undefined {
  * chain's: preflight is an eth_call against the contract, and the run then
  * simulates execute() to show the revert the chain itself would return.
  */
+export type Trigger = "wake" | "keeper" | "approval";
+
 export async function runOnce(
   capsuleId: string,
-  opts: { amountIn?: bigint; elevatedNonce?: bigint } = {},
+  opts: { amountIn?: bigint; elevatedNonce?: bigint; trigger?: Trigger } = {},
 ) {
   if (!tryLock(capsuleId)) return { started: false, reason: "a run is already in progress" };
 
@@ -82,10 +85,15 @@ export async function runOnce(
   try {
     const agent = agentAccount();
     const elevated = opts.elevatedNonce !== undefined;
+    const trigger: Trigger = opts.trigger ?? (elevated ? "approval" : "wake");
     say({
       kind: "run-start",
-      title: elevated ? "The issuer said yes — the agent spends under the approval" : "The agent wakes",
-      data: { agent: agent.address, ...(elevated ? { nonce: opts.elevatedNonce!.toString() } : {}) },
+      title: elevated
+        ? "The issuer said yes — the agent spends under the approval"
+        : trigger === "keeper"
+          ? "A new window opened — the keeper wakes the agent, nobody pressed anything"
+          : "The agent wakes",
+      data: { agent: agent.address, trigger, ...(elevated ? { nonce: opts.elevatedNonce!.toString() } : {}) },
     });
 
     // --- wake
@@ -190,14 +198,14 @@ export async function runOnce(
     say({ kind: "step", step: "execute", status: "active", title: "Sending the trade" });
     const wallet = createWalletClient({ account: agent, chain: monad, transport: http(cfg.rpcUrl) });
     const before = await publicClient.getBalance({ address: recipient });
-    const hash = elevated
-      ? await wallet.writeContract({
+    const hash = await inTurn(agent.address, () => elevated
+      ? wallet.writeContract({
           address: valetAddress(), abi: valetAbi, functionName: "executeElevated",
           args: [req, venueData, opts.elevatedNonce!],
         })
-      : await wallet.writeContract({
+      : wallet.writeContract({
           address: valetAddress(), abi: valetAbi, functionName: "execute", args: [req, venueData],
-        });
+        }));
     say({ kind: "step", step: "execute", status: "done", title: "Submitted", txHash: hash, detail: hash });
 
     // --- settle
@@ -245,9 +253,9 @@ export async function requestMore(capsuleId: string, size: bigint, reason: strin
     const agent = agentAccount();
     const id = BigInt(capsuleId);
     const wallet = createWalletClient({ account: agent, chain: monad, transport: http(cfg.rpcUrl) });
-    const hash = await wallet.writeContract({
+    const hash = await inTurn(agent.address, () => wallet.writeContract({
       address: valetAddress(), abi: valetAbi, functionName: "requestEscalation", args: [id, size, reason],
-    });
+    }));
     const rcpt = await publicClient.waitForTransactionReceipt({ hash });
     const ev = parseEventLogs({ abi: valetAbi, eventName: "EscalationRequested", logs: rcpt.logs })[0] as unknown as
       | { args: { nonce: bigint } }
