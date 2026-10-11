@@ -9,9 +9,8 @@ import { monad } from "../lib/chain/client";
  *
  * Embedded-wallet keys cannot be exported, so the key an issuer signs an
  * escalation with is one the agent it is constraining structurally cannot hold.
- * That is the property the Sui build got from a World ID liveness proof, reached
- * by a different route: not "a human is present now", but "this key cannot be
- * handed over".
+ * The guarantee is not "a human is present now" but "this key cannot be handed
+ * over" — which is the one an approval actually needs.
  *
  * Note what is NOT configured: smart wallets and a paymaster. The recipient
  * never sends a transaction — claiming, pausing and handing back are all
